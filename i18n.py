@@ -72,7 +72,10 @@ S = {
     "save_project": ("Save project (.json)", "프로젝트 저장 (.json)"),
     "open_project": ("Open project", "프로젝트 열기"),
     # participant column helps
-    "h_domain": ("One or more, comma separated. Hosts can exclude domains", "여러 개면 쉼표로 구분. 호스트가 특정 분야를 제외할 수 있어요"),
+    "h_domain": ("Tags, comma separated: sector and business model, e.g. Fintech, AI, B2C. Partners can ask for only, "
+                 "preferred or excluded tags",
+                 "쉼표로 구분한 태그. 분야와 사업 모델을 같이 적어요. 예: Fintech, AI, B2C. 파트너가 이 태그로 "
+                 "전용, 선호, 제외 분야를 정할 수 있어요"),
     "h_days_s": ("Blank = all days. Day 2 or 1,2 for some days. Not here = not attending",
                  "비우면 모든 날 참석. 특정 날만 오면 Day 2 또는 1,2. 불참이면 Not here 또는 불참"),
     "h_days_h": ("Blank = all days. Day 1 for one day. Not here = not attending",
@@ -87,6 +90,12 @@ S = {
     "h_contact": ("Person attending, e.g. Raymond", "참석하는 담당자. 예: Raymond"),
     "h_excluded": ("Never matched with startups in these domains, e.g. K-Beauty, Hardware",
                    "이 분야 스타트업과는 매칭하지 않아요. 예: K-Beauty, Hardware"),
+    "h_only": ("Only meets startups with one of these tags, e.g. AI or AI, B2C. Blank = anyone",
+               "이 태그 중 하나라도 있는 스타트업만 만나요. 예: AI 또는 AI, B2C. 비우면 누구나"),
+    "h_prefer": ("Would rather meet these, e.g. B2C. They get matched first, but others can still fill the gaps",
+                 "더 만나고 싶은 분야. 예: B2C. 먼저 매칭되지만 빈 시간은 다른 스타트업으로도 채워요"),
+    "only_none": ("{h} only meets {tags}, but no startup has those tags. Check the spelling or the startups' Domain column.",
+                  "{h}은(는) {tags} 스타트업만 만나는데, 그 태그가 있는 스타트업이 없어요. 철자나 스타트업 분야 칸을 확인해 주세요."),
     # paste
     "what_s": ("startups", "스타트업"),
     "what_h": ("hosts", "호스트"),
@@ -250,10 +259,12 @@ COL_LABELS = {
     "en": {"Name": "Name", "Presenter": "Presenter", "Domain": "Domain", "Days": "Days",
            "Available From": "Available From", "Available Until": "Available Until", "Blocked Times": "Blocked Times",
            "Priority": "Priority", "Pitch Polishing": "Pitch Polishing", "Max Meetings": "Max Meetings",
-           "Contact": "Contact", "Type": "Type", "Excluded Domains": "Excluded Domains", "_host_name": "Organisation"},
+           "Contact": "Contact", "Type": "Type", "Only Domains": "Only Meets", "Preferred Domains": "Prefers",
+           "Excluded Domains": "Excluded Domains", "_host_name": "Organisation"},
     "ko": {"Name": "이름", "Presenter": "발표자", "Domain": "분야", "Days": "참석일", "Available From": "가능 시작",
            "Available Until": "가능 종료", "Blocked Times": "불가 시간", "Priority": "우선", "Pitch Polishing": "피치 폴리싱",
-           "Max Meetings": "최대 미팅", "Contact": "담당자", "Type": "유형", "Excluded Domains": "제외 분야",
+           "Max Meetings": "최대 미팅", "Contact": "담당자", "Type": "유형", "Only Domains": "이 분야만",
+           "Preferred Domains": "선호 분야", "Excluded Domains": "제외 분야",
            "_host_name": "소속"},
 }
 

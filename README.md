@@ -69,7 +69,7 @@ bizmatch/
 | Name | ✓ | ✓ | Unique (for hosts, the organisation) |
 | Contact | | ✓ | Person attending, shown as `Raymond · Focus Tech` |
 | Presenter | ✓ | | Who pitches, e.g. `Jay & Serena`. Shown in the pitching practice schedule |
-| Domain | ✓ | | `Fintech` or `Climate, Hardware` |
+| Domain | ✓ | | Tags, comma separated. Put the sector and the business model together, e.g. `Fintech, AI, B2C` |
 | Type | | ✓ | Investor, Corporate, Agency, Mentor, Other |
 | Days | ✓ | ✓ | Blank or `All` = every day. Otherwise `Day 2`, `1,2`, or your day label. `Not here` (or `None`, `Absent`) = not attending, listed under NOT HERE |
 | Available From | ✓ | ✓ | `HH:MM`. Blank = day start |
@@ -77,8 +77,12 @@ bizmatch/
 | Blocked Times | ✓ | ✓ | Restricted windows, e.g. `Day 1 14:00-15:00; 16:20-16:40`. Without a day, the window applies to every day |
 | Priority | ✓ | | TRUE / yes / 1 |
 | Pitch Polishing | ✓ | | Ticked by default. Untick to skip polishing for that startup |
-| Excluded Domains | | ✓ | `K-Beauty, Hardware` |
+| Only Domains (Only Meets) | | ✓ | Hard rule. Meets only startups with one of these tags, e.g. `AI` or `AI, B2C`. Blank = anyone |
+| Preferred Domains (Prefers) | | ✓ | Soft wish, e.g. `B2C`. These startups are matched with them first; free time can still go to others |
+| Excluded Domains | | ✓ | Hard rule. Never these tags, e.g. `K-Beauty, Hardware` |
 | Max Meetings | ✓ | ✓ | Blank = no limit |
+
+Tags match by whole words, so `AI` matches `AI`, `AI/ML` and `Gen AI` but not `Retail`, and `B2C` matches `B2C Commerce`. If a partner's Only Meets tags match no startup, the Generate tab warns before you run it.
 
 Common header names such as `Startup Name`, `Company`, `Sector`, `Cutoff`, `From`, `Until` and `Excludes` are recognised on import. Excel time cells work too.
 

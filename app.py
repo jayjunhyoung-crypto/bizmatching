@@ -56,7 +56,7 @@ DEFAULT_NAMES = {"session": "Session", "time": "Time Slot", "table": "Table", "s
 ABSENT_WORDS = ("none", "no", "absent", "not here", "not attending", "cancelled", "canceled",
                 "x", "dropped", "withdrawn", "불참", "미참석", "취소", "없음")
 HOST_COLS = ["Name", "Contact", "Type", "Days", "Available From", "Available Until",
-             "Blocked Times", "Excluded Domains", "Max Meetings"]
+             "Blocked Times", "Only Domains", "Preferred Domains", "Excluded Domains", "Max Meetings"]
 TIMEZONES = ["Asia/Singapore", "Asia/Seoul", "Asia/Tokyo", "Asia/Hong_Kong", "Asia/Shanghai",
              "Asia/Jakarta", "Asia/Bangkok", "Asia/Kolkata", "Asia/Dubai", "Europe/London",
              "Europe/Berlin", "America/New_York", "America/Los_Angeles", "UTC"]
@@ -73,6 +73,7 @@ W_FAIR_HOST = 1_500       # concave fairness reward for hosts
 W_GAP = 4_000             # soft packing: penalty per extra block
 W_EARLY = 1               # tiny push toward earlier slots
 W_POLISH = 60_000         # a pitch polishing session outranks any single meeting
+W_PREFER = 3_000          # a host meeting a startup in its preferred domains (steers who, never costs a meeting)
 
 
 # --------------------------------------------------------------------------------------
@@ -296,7 +297,11 @@ class Party:
     blocked: tuple = ()
     max_m: int | None = None
     domains: frozenset = frozenset()   # startups
-    excluded: frozenset = frozenset()  # hosts
+    excluded: frozenset = frozenset()  # hosts: never these tags
+    only: frozenset = frozenset()      # hosts: only startups with one of these tags
+    prefer: frozenset = frozenset()    # hosts: rather startups with these tags
+    only_text: str = ""
+    prefer_text: str = ""
     priority: bool = False
     kind: str = ""                     # host type
     contact: str = ""                  # host contact person
@@ -328,8 +333,29 @@ def host_label(h) -> str:
     return f"{h.contact} · {h.name}" if h.contact else h.name
 
 
+def _tok(tag: str) -> frozenset:
+    return frozenset(re.findall(r"[0-9a-z가-힣]+", tag.lower()))
+
+
+def tags_hit(wanted, have) -> bool:
+    """True when any wanted tag matches any of the startup's tags. 'AI' matches 'AI', 'AI/ML' and 'Gen AI',
+    'B2C' matches 'B2C' and 'B2C Commerce' (every word of the wanted tag must appear in the startup tag)."""
+    for w in wanted:
+        wt = _tok(w)
+        for h in have:
+            if w == h or (wt and wt <= _tok(h)):
+                return True
+    return False
+
+
 def compatible(s: Party, h: Party) -> bool:
-    return not (s.domains & h.excluded)
+    if h.excluded and tags_hit(h.excluded, s.domains):
+        return False
+    return not h.only or tags_hit(h.only, s.domains)
+
+
+def prefers(h: Party, s: Party) -> bool:
+    return bool(h.prefer) and tags_hit(h.prefer, s.domains)
 
 
 @dataclass
@@ -426,6 +452,10 @@ def parse_parties(df: pd.DataFrame, role: str, labels: list[str]) -> tuple[list[
             else:
                 kind = "" if is_blank(row.get("Type")) else str(row.get("Type")).strip()
                 kw.update(excluded=frozenset(norm(x) for x in split_list(row.get("Excluded Domains"))),
+                          only=frozenset(norm(x) for x in split_list(row.get("Only Domains"))),
+                          prefer=frozenset(norm(x) for x in split_list(row.get("Preferred Domains"))),
+                          only_text=", ".join(split_list(row.get("Only Domains"))),
+                          prefer_text=", ".join(split_list(row.get("Preferred Domains"))),
                           kind=kind or "Investor",
                           contact="" if is_blank(row.get("Contact")) else str(row.get("Contact")).strip())
             parties.append(Party(**kw))
@@ -578,6 +608,9 @@ def solve_schedule(cfg: EventConfig, slots: list[Slot], startups: list[Party], h
 
     # Objective: total meetings first, then priority, then fairness, then earliness
     pw = max(1, int(settings.priority_weight))
+    for (si, hi, _k), v in x.items():
+        if prefers(hosts[hi], startups[si]):
+            terms.append((v, W_PREFER))
     for si, s in enumerate(startups):
         vs = by_s[si]
         if not vs:
@@ -1304,26 +1337,26 @@ def sample_frames() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     d0 = date.today() + timedelta(days=7)
     days = pd.DataFrame({"Label": ["Day 1", "Day 2"], "Date": [d0, d0 + timedelta(days=1)]})
     s = [
-        ("Voltra Energy", "Climate", "", "", "", "", True),
-        ("MediKey", "HealthTech", "", "", "", "", False),
-        ("Kanto Robotics", "Hardware", "", "", "", "", False),
+        ("Voltra Energy", "Climate, B2B", "", "", "", "", True),
+        ("MediKey", "HealthTech, AI, B2B", "", "", "", "", False),
+        ("Kanto Robotics", "Hardware, AI", "", "", "", "", False),
         ("Seedline Agritech", "AgriTech", "", "", "", "", False),
-        ("Parcelo", "Logistics", "", "", "", "", False),
-        ("FinchPay", "Fintech", "", "", "", "", True),
-        ("Lumen Health", "HealthTech", "", "", "", "", False),
+        ("Parcelo", "Logistics, B2B", "", "", "", "", False),
+        ("FinchPay", "Fintech, B2C", "", "", "", "", True),
+        ("Lumen Health", "HealthTech, B2C", "", "", "", "", False),
         ("Tidewave Marine", "Climate", "", "", "", "", False),
-        ("Glowlab Cosmetics", "K-Beauty", "", "", "", "", False),
-        ("Aster Skin", "K-Beauty", "Day 2", "", "", "", False),
-        ("Railmind", "Mobility", "", "", "16:00", "", False),
-        ("Quanta Ledger", "Fintech", "", "", "", "", False),
-        ("Brightcart", "SaaS", "", "", "", "", False),
+        ("Glowlab Cosmetics", "K-Beauty, B2C", "", "", "", "", False),
+        ("Aster Skin", "K-Beauty, B2C", "Day 2", "", "", "", False),
+        ("Railmind", "Mobility, AI", "", "", "16:00", "", False),
+        ("Quanta Ledger", "Fintech, AI, B2B", "", "", "", "", False),
+        ("Brightcart", "SaaS, B2C", "", "", "", "", False),
         ("Nimbus Grid", "Climate, Hardware", "", "", "", "", False),
-        ("Coral AI", "SaaS", "", "", "", "", True),
-        ("Haneul Foods", "FoodTech", "", "", "", "Day 1 13:00-14:00", False),
+        ("Coral AI", "SaaS, AI/ML, B2B", "", "", "", "", True),
+        ("Haneul Foods", "FoodTech, B2C", "", "", "", "Day 1 13:00-14:00", False),
         ("Pathwise", "EdTech", "Not here", "", "", "", False),
         ("Ondo Mobility", "Mobility", "Day 1", "", "", "", False),
         ("Silo Sense", "AgriTech, Hardware", "", "11:00", "", "", False),
-        ("Kite Insure", "Fintech", "", "", "", "", False),
+        ("Kite Insure", "Fintech, B2C", "", "", "", "", False),
     ]
     startups = pd.DataFrame(s, columns=["Name", "Domain", "Days", "Available From", "Available Until",
                                         "Blocked Times", "Priority"])
@@ -1332,12 +1365,12 @@ def sample_frames() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     startups["Pitch Polishing"] = True
     startups["Max Meetings"] = None
     h = [
-        ("Sunrise Ventures", "Grace Lim", "Investor", "", "", "", "", "K-Beauty", None),
-        ("Meridian Capital", "Daniel Ong", "Investor", "Day 2", "15:00", "17:00", "", "", None),
-        ("Halcyon Logistics", "Priya Nair", "Corporate", "", "", "", "", "K-Beauty, EdTech", None),
-        ("Orchid Bank", "Marcus Tan", "Corporate", "Day 1", "", "", "", "K-Beauty, Hardware", None),
-        ("Harbor Innovation Agency", "Mei Ling", "Agency", "", "", "", "Day 2 10:00-11:00", "", None),
-        ("Lumen Corporate Ventures", "Jason Koh", "Investor", "", "", "", "", "", 16),
+        ("Sunrise Ventures", "Grace Lim", "Investor", "", "", "", "", "", "B2C", "K-Beauty", None),
+        ("Meridian Capital", "Daniel Ong", "Investor", "Day 2", "15:00", "17:00", "", "AI, Fintech", "", "", None),
+        ("Halcyon Logistics", "Priya Nair", "Corporate", "", "", "", "", "", "Logistics, B2B", "K-Beauty, EdTech", None),
+        ("Orchid Bank", "Marcus Tan", "Corporate", "Day 1", "", "", "", "", "Fintech", "K-Beauty, Hardware", None),
+        ("Harbor Innovation Agency", "Mei Ling", "Agency", "", "", "", "Day 2 10:00-11:00", "", "", "", None),
+        ("Lumen Corporate Ventures", "Jason Koh", "Investor", "", "", "", "", "", "AI", "", 16),
     ]
     hosts = pd.DataFrame(h, columns=HOST_COLS)
     return days, clean_frame(startups, "startup"), clean_frame(hosts, "host")
@@ -1365,6 +1398,11 @@ ALIASES = {
     "contact": "Contact", "contact person": "Contact", "person": "Contact", "representative": "Contact",
     "attendee": "Contact",
     "excluded domains": "Excluded Domains", "excludes": "Excluded Domains", "exclude": "Excluded Domains",
+    "only domains": "Only Domains", "only meets": "Only Domains", "only": "Only Domains", "must be": "Only Domains",
+    "preferred domains": "Preferred Domains", "prefers": "Preferred Domains", "preferred": "Preferred Domains",
+    "interests": "Preferred Domains", "interest": "Preferred Domains", "focus areas": "Preferred Domains",
+    "희망 분야": "Preferred Domains", "선호 분야": "Preferred Domains", "관심 분야": "Preferred Domains",
+    "전용 분야": "Only Domains", "만나는 분야": "Only Domains", "필수 분야": "Only Domains",
     "스타트업": "Name", "스타트업명": "Name", "회사": "Name", "회사명": "Name", "기업": "Name", "기업명": "Name",
     "이름": "Name", "소속": "Name", "투자사": "Name", "발표자": "Presenter", "분야": "Domain", "섹터": "Domain",
     "산업": "Domain", "참석일": "Days", "참석": "Days", "일자": "Days", "날짜": "Days", "담당자": "Contact",
@@ -1435,6 +1473,8 @@ GUESS = [  # (words in the header, field)
     (("present", "speaker", "pitcher", "founder"), "Presenter"),
     (("contact", "attendee", "representative", "person"), "Contact"),
     (("exclud", "avoid", "not interested"), "Excluded Domains"),
+    (("only", "must", "required"), "Only Domains"),
+    (("prefer", "interest", "focus area", "thesis", "wish"), "Preferred Domains"),
     (("type", "kind", "category"), "Type"),            # hosts only (startups have no Type)
     (("domain", "sector", "industry", "category", "vertical"), "Domain"),
     (("block", "unavail", "busy", "restricted"), "Blocked Times"),
@@ -2045,7 +2085,8 @@ def board_payload(day, cfg, slots, startups, hosts, r) -> dict:
         "rows": rows, "sessions": cfg.session_list(),
         "startups": [{"name": x.name, "priority": x.priority, "presenter": x.presenter,
                       "avail": [z.k for z in ds if x.available(z)],
-                      "no": [h.name for h in hosts if not compatible(x, h)]}
+                      "no": [h.name for h in hosts if not compatible(x, h)],
+                      "pref": [h.name for h in hosts if prefers(h, x)]}
                      for x in startups if not x.absent],
         # pairs already scheduled on other days (each startup meets a partner once)
         "other": {**{f"{m['startup']}|{m['host']}": "-" for m in r.get("parked", []) if m["day"] != day},
@@ -2113,8 +2154,8 @@ def summary_payload(cfg, startups, hosts, r) -> dict:
         "version": version, "lang": lang(), "tz": cfg.tz, "tzShort": tz_short, "days": days,
         "startups": [{"name": x.name, "priority": x.priority, "presenter": x.presenter, "days": sorted(x.days)}
                      for x in startups],
-        "hosts": [{"name": h.name, "contact": h.contact, "kind": h.kind, "color": hcol[h.name], "days": sorted(h.days)}
-                  for h in hosts],
+        "hosts": [{"name": h.name, "contact": h.contact, "kind": h.kind, "color": hcol[h.name], "days": sorted(h.days),
+                   "only": h.only_text, "prefer": h.prefer_text} for h in hosts],
         "meetings": meetings, "polish": polish, "statuses": sts,
     }
 
@@ -2269,6 +2310,8 @@ def setup_tab():
             "Available From": st.column_config.TextColumn(help=T("h_from"), validate=TIME_VALID),
             "Available Until": st.column_config.TextColumn(help=T("h_until"), validate=TIME_VALID),
             "Blocked Times": st.column_config.TextColumn(help=T("h_blocked"), width="medium"),
+            "Only Domains": st.column_config.TextColumn(help=T("h_only"), width="medium"),
+            "Preferred Domains": st.column_config.TextColumn(help=T("h_prefer"), width="medium"),
             "Excluded Domains": st.column_config.TextColumn(help=T("h_excluded"), width="medium"),
             "Max Meetings": st.column_config.NumberColumn(min_value=0, step=1, format="%d"),
         }))
@@ -2294,6 +2337,9 @@ def generate_tab():
         st.error(T("fix_errors") + "\n\n" + "\n".join(f"- {e}" for e in errors))
 
     attending = [x for x in startups if not x.absent]
+    for h in hosts:
+        if h.only and not h.absent and not any(compatible(a, h) for a in attending):
+            st.warning(T("only_none", h=h.name, tags=h.only_text))
     pairs = sum(compatible(a, b) for a in attending for b in hosts if not b.absent)
     peak = max((sum(h.available(x) for h in hosts) for x in slots), default=0)
     c = st.columns(5)

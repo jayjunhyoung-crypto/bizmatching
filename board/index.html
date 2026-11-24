@@ -185,7 +185,7 @@ td.free{min-width:190px;max-width:300px;vertical-align:middle}
       "{0} is not a match for {1}": "{0}은(는) {1}의 제외 분야예요",
       "All tables are taken at {0}": "{0}에는 빈 테이블이 없어요",
       "New meeting · {0}": "새 미팅 · {0}", "Who meets {0}?": "누가 {0}와(과) 만날까요?",
-      "{0} today": "오늘 {0}개", "Highlight {0}": "{0} 강조해서 보기", "Added {0}": "추가했어요 · {0}",
+      "{0} today": "오늘 {0}개", "preferred": "선호 분야", "Highlight {0}": "{0} 강조해서 보기", "Added {0}": "추가했어요 · {0}",
       "1st": "1회차", "2nd": "2회차", "{0}th": "{0}회차", "polishing": "폴리싱", "Table": "테이블",
     },
   };
@@ -216,8 +216,9 @@ td.free{min-width:190px;max-width:300px;vertical-align:middle}
     const b = busy(st, k), cnt = {};
     st.meetings.forEach((m) => (cnt[m.startup] = (cnt[m.startup] || 0) + 1));
     return Object.keys(D.startups).filter((s) => avail(D.startups[s], k) && !b.s.has(s) && !pairAt(st, s, host) && !(D.startups[s].no || {})[host])
-      .sort((a, c) => (D.startups[c].priority ? 1 : 0) - (D.startups[a].priority ? 1 : 0) || (cnt[a] || 0) - (cnt[c] || 0) || a.localeCompare(c))
-      .map((s) => ({ name: s, n: cnt[s] || 0 }));
+      .sort((a, c) => (D.startups[c].priority ? 1 : 0) - (D.startups[a].priority ? 1 : 0)
+        || ((D.startups[c].pref || {})[host] ? 1 : 0) - ((D.startups[a].pref || {})[host] ? 1 : 0) || (cnt[a] || 0) - (cnt[c] || 0) || a.localeCompare(c))
+      .map((s) => ({ name: s, n: cnt[s] || 0, pref: !!(D.startups[s].pref || {})[host] }));
   }
   function freeTable(st, host, k) {
     const b = busy(st, k);
@@ -689,7 +690,7 @@ td.free{min-width:190px;max-width:300px;vertical-align:middle}
     let h = '<div class="t">' + tr("New meeting · {0}", esc(pk.host)) + "<small>" + fmt(slotOf(pk.k).start) + " · " + esc((D.names && D.names.table) || "Table") + " " + pk.t
       + (H_.contact ? " · " + esc(H_.contact) : "") + "</small></div><div class=\"why\" style=\"color:var(--mut)\">" + tr("Who meets {0}?", esc(pk.host)) + '</div><div class="pick">';
     pk.cands.forEach((c) => {
-      h += '<button data-pick="' + esc(c.name) + '">' + (D.startups[c.name].priority ? "★ " : "") + esc(c.name) + "<small>" + tr(c.n === 1 ? "{0} meeting" : "{0} meetings", c.n) + "</small></button>";
+      h += '<button data-pick="' + esc(c.name) + '">' + (D.startups[c.name].priority ? "★ " : "") + esc(c.name) + "<small>" + (c.pref ? '<span style="color:var(--green);font-weight:700">' + tr("preferred") + "</span> · " : "") + tr(c.n === 1 ? "{0} meeting" : "{0} meetings", c.n) + "</small></button>";
     });
     m.innerHTML = h + "</div>";
     placeMenu(m, el);
@@ -783,7 +784,7 @@ td.free{min-width:190px;max-width:300px;vertical-align:middle}
       maxHeight: data.maxHeight || 900, names: data.names || {}, lang: data.lang || "en",
     };
     data.rows.forEach((r) => { if (r.kind === "slot") D.slotByK[r.k] = r; });
-    data.startups.forEach((s) => (D.startups[s.name] = { avail: toSet(s.avail), priority: s.priority, presenter: s.presenter || "", no: toSet(s.no) }));
+    data.startups.forEach((s) => (D.startups[s.name] = { avail: toSet(s.avail), priority: s.priority, presenter: s.presenter || "", no: toSet(s.no), pref: toSet(s.pref) }));
     D.other = data.other || {};
     data.hosts.forEach((h) => (D.hosts[h.name] = { avail: toSet(h.avail), color: h.color, text: h.text, contact: h.contact }));
     S = { meetings: data.meetings || [], parked: data.parked || [], polish: data.polish || [], statuses: data.statuses || {} };

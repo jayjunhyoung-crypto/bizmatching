@@ -71,6 +71,7 @@ select{border:1px solid var(--line);border-radius:9px;background:var(--panel);pa
 .sub{color:var(--mut);margin-top:2px;font-size:12px}
 .badge{display:inline-block;border-radius:6px;padding:1px 7px;font-size:11px;font-weight:700;background:var(--zone);color:var(--mut);margin-top:4px}
 .badge.warn{background:var(--redbg);color:var(--red)}
+.badge.want{background:var(--bluebg);color:var(--blue)}
 .hc{width:9px;height:9px;border-radius:3px;display:inline-block;flex:none}
 
 .prog .bar{display:flex;height:7px;border-radius:99px;overflow:hidden;background:var(--zone)}
@@ -147,7 +148,7 @@ select{border:1px solid var(--line);border-radius:9px;background:var(--panel);pa
     "Now": "지금", "Next": "다음", "ends": "종료", "Table": "테이블", "No meeting running right now.": "지금 진행 중인 미팅이 없어요.",
     "All": "전체", "Priority": "우선순위", "Has no-show": "노쇼 있음", "In a meeting now": "지금 미팅 중",
     "Part days": "일부만 참석", "Sort by name": "이름순", "Most meetings": "미팅 많은 순", "Least progress": "진행 적은 순",
-    "Most no-shows": "노쇼 많은 순", "Up next first": "다음 미팅 빠른 순", "Startup": "스타트업", "Partner": "파트너", "Progress": "진행",
+    "Most no-shows": "노쇼 많은 순", "Only": "이 분야만", "Prefers": "선호", "Up next first": "다음 미팅 빠른 순", "Startup": "스타트업", "Partner": "파트너", "Progress": "진행",
     "Practice": "피칭 연습", "done": "완료", "No meetings": "미팅 없음", "Not attending": "불참",
     "only": "만 참석", "Nothing matches.": "조건에 맞는 항목이 없어요.", "Auto (follows the clock)": "자동 (시간 따라)",
     "no-show": "노쇼", "practices": "회 연습", "round": "차", "meetings today": "개 미팅 오늘",
@@ -311,7 +312,9 @@ select{border:1px solid var(--line);border-radius:9px;background:var(--panel);pa
           (p.presenter ? `<div class="sub">${esc(p.presenter)}</div>` : "") + attendanceBadge(p.days);
       } else {
         name = `<div class="nm nw"><span class="hc" style="background:#${p.color}"></span><span>${esc(p.name)}</span></div>` +
-          `<div class="sub">${esc([p.contact, p.kind].filter(Boolean).join(" · "))}</div>` + attendanceBadge(p.days);
+          `<div class="sub">${esc([p.contact, p.kind].filter(Boolean).join(" · "))}</div>` +
+          (p.only ? `<span class="badge want">${esc(tr("Only"))} ${esc(p.only)}</span> ` : "") +
+          (p.prefer ? `<span class="badge want">${esc(tr("Prefers"))} ${esc(p.prefer)}</span> ` : "") + attendanceBadge(p.days);
       }
       const progress = `<div class="prog">${bar(r.c, n, "bar")}<div class="txt"><span><b>${r.c.Done}</b> / ${n} ${esc(tr("done"))}</span>` +
         (r.c["No-Show"] ? `<span class="ns">${r.c["No-Show"]} ${esc(tr("no-show"))}</span>` : "") + `</div></div>`;
