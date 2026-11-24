@@ -130,9 +130,8 @@ S = {
     "tl": ("Solver time limit (seconds)", "계산 시간 제한 (초)"),
     "hf": ("Spread meetings fairly across hosts too", "호스트 간에도 미팅을 고르게 배분"),
     "pe": ("Prefer earlier slots", "이른 시간 우선"),
-    "keep_live": ("Keep pinned meetings (moved by hand) and anything already Ongoing, Done or No-Show, and "
-                  "reschedule the rest",
-                  "직접 옮긴(고정된) 미팅과 이미 진행 중·완료·노쇼인 미팅은 그대로 두고 나머지만 다시 짜기"),
+    "keep_live": ("Also keep meetings already Ongoing, Done or No-Show (pinned meetings always stay)",
+                  "이미 진행 중·완료·노쇼인 미팅도 그대로 두기 (고정한 미팅은 항상 유지돼요)"),
     "always": ("Always enforced: each startup and host meet at most once, nobody is double booked, tables are never "
                "over capacity, availability, cutoffs, blocked times and domain exclusions are respected.",
                "항상 지키는 규칙: 같은 스타트업과 호스트는 최대 한 번만 만나고, 누구도 같은 시간에 두 미팅이 잡히지 않으며, "
@@ -168,10 +167,11 @@ S = {
     "m_clash": ("Clashes", "충돌"),
     "board_cap": ("Drag a meeting onto another table or time. Green fits, amber pushes the meetings in the way to the "
                   "nearest free time, red is a clash. Click a meeting to set its status, pin it or unschedule it. "
-                  "Ctrl+Z undoes.",
+                  "Pinned meetings cannot be dragged or pushed and stay when you generate again. ★ marks a priority "
+                  "startup. Ctrl+Z undoes.",
                   "미팅을 끌어서 다른 테이블이나 시간에 놓아보세요. 초록은 그대로 들어가고, 주황은 겹치는 일정을 가장 가까운 "
                   "빈 시간으로 밀어내고, 빨강은 충돌이에요. 미팅을 클릭하면 상태 변경·고정·배정 취소를 할 수 있어요. "
-                  "Ctrl+Z로 되돌려요."),
+                  "고정한 미팅은 끌거나 밀리지 않고, 다시 생성해도 그대로 남아요. ★는 우선 스타트업이에요. Ctrl+Z로 되돌려요."),
     "clashes_exp": ("{n} clash(es) to resolve", "해결할 충돌 {n}건"),
     "verified": ("Verified: no duplicate pairs, no double booking, table capacity, availability, cutoffs, blocked "
                  "times, domain exclusions", "검증 완료: 중복 매칭 없음, 겹치는 일정 없음, 테이블 수·참석 시간·컷오프·불가 시간·분야 제외 모두 지킴"),

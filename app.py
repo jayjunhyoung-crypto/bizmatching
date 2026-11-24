@@ -2004,22 +2004,22 @@ def generate_tab():
 
     keep_live = False
     if s.result and s.result.get("meetings"):
-        has_pins = any(m.get("lock") for m in s.result["meetings"])
-        keep_live = st.checkbox(T("keep_live"), value=has_pins, key="keep_live")
+        keep_live = st.checkbox(T("keep_live"), value=True, key="keep_live")
 
     st.caption(T("always"))
     go = st.button(T("generate"), type="primary",
                    disabled=bool(errors) or not startups or not hosts or not slots)
     if go:
         fixed, fixed_pol = [], []
-        if keep_live:
+        if s.result and s.result.get("meetings"):
             old_cfg = EventConfig(**s.result["cfg"])
             now = now_for(old_cfg)
             for md in s.result["meetings"]:
                 m = Meeting(**md)
-                if m.lock or eff_status(m, old_cfg, s.statuses, now) in LOCK_STATUSES:
+                # pinned meetings always stay; started / finished ones stay when the box is ticked
+                if m.lock or (keep_live and eff_status(m, old_cfg, s.statuses, now) in LOCK_STATUSES):
                     fixed.append((m.startup, m.host, m.day, m.start))
-            for pd_ in s.result.get("polish", []):
+            for pd_ in (s.result.get("polish", []) if keep_live else []):
                 p_ = Polish(**pd_)
                 dd = old_cfg.day_date(p_.day)
                 if dd and (dd < now.date() or (dd == now.date() and p_.start <= now.hour * 60 + now.minute)):
@@ -2029,9 +2029,7 @@ def generate_tab():
         with st.spinner(T("spinner")):
             res = solve_schedule(cfg, slots, startups, hosts, settings, fixed, fixed_pol)
         if res.meetings:
-            pinned = {(f[0], f[1]) for f in fixed if any(md.get("lock") and md["startup"] == f[0] and
-                                                         md["host"] == f[1] for md in s.result["meetings"])} \
-                if keep_live else set()
+            pinned = {(md["startup"], md["host"]) for md in (s.result or {}).get("meetings", []) if md.get("lock")}
             for m in res.meetings:
                 m.lock = (m.startup, m.host) in pinned
             s.result = {

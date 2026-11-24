@@ -48,7 +48,7 @@ bizmatch/
 - Pitch polishing slots can be dragged the same way. A startup's meeting at the new polishing time gets pushed away.
 - Drop a meeting on **Unplaced** to take it out of the schedule, then drag it back later. Click a meeting to set its status, pin it or unschedule it. Ctrl+Z or ↶ Undo reverts a change.
 - **Pitching practice** table under the board: Time, Startup, Presenter, Round (1st/2nd), Status and Focus / Mentor Note for each polishing session. It is the same data as the board. Dragging a polishing slot on the board changes its time here, and a status or note set here shows on the board.
-- Meetings you move are pinned. When you generate again with *Keep pinned meetings* ticked, they stay where you put them.
+- **Pin** a meeting from its menu to lock it: a pinned meeting cannot be dragged or pushed by other moves, and it always stays where it is when you generate again. ★ marks a priority startup.
 - NOT HERE / ONLY notes stay hidden until you press **Show attendance notes**. In the Excel file they sit in a folded row group, opened with the `+` in the left margin.
 - A timeline for each day in the team's sheet layout: Session, Time Slot, Table 1 / Status 1 … Table N / Status N, **Polishing Schedule** and **Waiting List** (startups that are neither in a meeting nor in polishing, or `None (All in Sessions)`). The live board in the app also shows resting hosts.
 - Each host (organisation) keeps one colour everywhere, so you can follow a host across tables and sessions. Pink and yellow are reserved for polishing: pink is a startup's first polishing session, yellow its second.

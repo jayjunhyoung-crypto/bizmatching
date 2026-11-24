@@ -66,6 +66,7 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
 .chip.bad::after{content:"!";position:absolute;top:-7px;left:-7px;width:16px;height:16px;border-radius:50%;background:var(--red);
  color:#fff;font-size:11px;font-weight:800;display:grid;place-items:center}
 .chip.lift{opacity:.25;transform:scale(.96)}
+.chip.pinned{cursor:default;box-shadow:inset 0 0 0 2px rgba(17,24,39,.55)}
 .chip.snap{animation:snap .32s cubic-bezier(.2,.8,.2,1)}
 .chip.bump{animation:bump .6s ease}
 @keyframes snap{0%{transform:scale(1.10)}55%{transform:scale(.96)}100%{transform:scale(1)}}
@@ -140,6 +141,9 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
       "Pin here": "여기에 고정", "Unpin": "고정 해제", "Unschedule": "일정에서 빼기",
       "Drag it onto a table to schedule it": "테이블로 끌어다 놓으면 일정에 들어가요",
       "pitch polishing": "피치 폴리싱", "Focus: {0}": "포커스: {0}", "Remove this polishing slot": "이 폴리싱 일정 삭제",
+      "{0} is pinned here. Unpin it first": "{0}은(는) 이 자리에 고정돼 있어요. 먼저 고정을 해제하세요",
+      "Pinned. Unpin it first to move it": "고정된 미팅이에요. 옮기려면 먼저 고정을 해제하세요",
+      "priority startup": "우선 스타트업", "pinned": "고정",
       "1st": "1회차", "2nd": "2회차", "{0}th": "{0}회차", "polishing": "폴리싱", "Table": "테이블",
     },
   };
@@ -270,8 +274,13 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
         return { st: st, moved: moved, kind: "fit", reasons: [], text: tr("Unschedule {0} with {1}", A.startup, A.host) };
       }
       const k = target.k, t = target.t;
-      const a = Object.assign({}, A, { k: k, table: t, lock: true });
+      const a = Object.assign({}, A, { k: k, table: t, lock: !!A.lock });
       const disp = st.meetings.filter((m) => m.k === k && (m.table === t || m.startup === a.startup || m.host === a.host));
+      const pinned = disp.filter((m) => m.lock);
+      if (pinned.length) {
+        const why = pinned.map((m) => tr("{0} is pinned here. Unpin it first", tr("{0} with {1}", m.startup, m.host)));
+        return { st: st, moved: [], kind: "clash", blocked: true, reasons: why, text: why.join("\n"), focus: A.id };
+      }
       st.meetings = st.meetings.filter((m) => disp.indexOf(m) < 0);
       const dispP = st.polish.filter((p) => p.k === k && p.startup === a.startup);
       st.polish = st.polish.filter((p) => dispP.indexOf(p) < 0);
@@ -300,6 +309,10 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
     st.polish = st.polish.filter((p) => p.id !== P.id);
     const p2 = Object.assign({}, P, { k: k });
     const disp = st.meetings.filter((m) => m.k === k && m.startup === P.startup);
+    if (disp.some((m) => m.lock)) {
+      const why = disp.filter((m) => m.lock).map((m) => tr("{0} is pinned here. Unpin it first", tr("{0} with {1}", m.startup, m.host)));
+      return { st: st, moved: [], kind: "clash", blocked: true, reasons: why, text: why.join("\n"), focus: P.id };
+    }
     st.meetings = st.meetings.filter((m) => disp.indexOf(m) < 0);
     let others = st.polish.filter((q) => q.k === k);
     const bump = others.length >= D.polCap ? others.slice(0, others.length - D.polCap + 1) : [];
@@ -347,7 +360,7 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
   function chipHTML(m, st, clashSet) {
     const H_ = D.hosts[m.host] || { color: "eeeeee", text: "1f2430", contact: "" };
     const s = statusOf(m), bad = clashSet.has(m.id);
-    const cls = ["chip", s === "No-Show" ? "ns" : "", s === "Done" ? "done" : "", s === "Ongoing" ? "ongoing" : "", bad ? "bad" : ""].join(" ");
+    const cls = ["chip", m.lock ? "pinned" : "", s === "No-Show" ? "ns" : "", s === "Done" ? "done" : "", s === "Ongoing" ? "ongoing" : "", bad ? "bad" : ""].join(" ");
     const star = D.startups[m.startup] && D.startups[m.startup].priority ? "★ " : "";
     const who = H_.contact ? "(" + esc(H_.contact) + " - " + esc(m.host) + ")" : "(" + esc(m.host) + ")";
     const title = bad ? ' title="' + esc(meetingClash(st, m).join("\n")) + '"' : "";
@@ -406,7 +419,8 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
       + (clashes.length ? '<span class="pill bad" data-act="clashes" title="' + esc(clashes.map((c) => c.text).join("\n")) + '">' + tr(clashes.length > 1 ? "{0} clashes" : "{0} clash", clashes.length) + "</span>" : '<span class="pill"><i style="background:var(--green)"></i>' + tr("No clashes") + "</span>")
       + STATUSES.map((s) => '<span class="pill"><i style="background:' + { Scheduled: "#9ca3af", Ongoing: "#1240e0", Done: "#16a34a", "No-Show": "#d92d20" }[s] + '"></i>' + counts[s] + " " + stName(s) + "</span>").join("")
       + notes + '<span class="spacer"></span>' + (n.cmp === 0 ? '<span class="clock">' + tr("Now {0}", n.hm) + "</span>" : "")
-      + '<span class="legend"><span><i style="background:rgba(20,164,77,.35)"></i>' + tr("fits") + '</span><span><i style="background:rgba(224,138,0,.4)"></i>' + tr("pushes others") + '</span><span><i style="background:rgba(217,45,32,.4)"></i>' + tr("clash") + "</span></span></div>"
+      + '<span class="legend"><span>★ ' + tr("priority startup") + '</span><span style="gap:3px">' + PIN.replace('class="pin"', 'width="11" height="11"') + tr("pinned") + "</span>"
+      + '<span><i style="background:rgba(20,164,77,.35)"></i>' + tr("fits") + '</span><span><i style="background:rgba(224,138,0,.4)"></i>' + tr("pushes others") + '</span><span><i style="background:rgba(217,45,32,.4)"></i>' + tr("clash") + "</span></span></div>"
       + (showNotes ? '<div class="notes">' + D.notes.map((x) => "<div><b>" + esc(x[0]) + ":</b> " + esc(x[1]) + "</div>").join("") + "</div>" : "")
       + '<div class="tray" data-tray="1"><span class="lab">' + tr("Unplaced") + "</span>" + (parked || '<span style="color:var(--mut)">' + tr("Drag a meeting here to unschedule it") + "</span>") + "</div>"
       + '<div class="wrap" id="wrap"><table class="g"><thead>' + head + "</thead><tbody>" + body + "</tbody></table></div>";
@@ -444,8 +458,11 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
   }
   function onMove(e) {
     if (!drag) return;
+    if (drag.blocked) return;
     if (!drag.started) {
       if (Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) < 5) return;
+      const it = drag.type === "m" ? S.meetings.find((m) => m.id === drag.id) : null;
+      if (it && it.lock) { drag.blocked = true; toast(tr("Pinned. Unpin it first to move it"), true); return; }
       drag.started = true;
       const r = drag.el.getBoundingClientRect();
       const g = drag.el.cloneNode(true); g.classList.add("ghost"); g.classList.remove("bad", "snap", "bump");
@@ -494,9 +511,11 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
     const d = drag; drag = null; clearHot();
     if (d.g) d.g.remove(); if (d.hint) d.hint.remove();
     if (d.el) d.el.classList.remove("lift");
+    if (d.blocked) return;
     if (!d.started) { openMenu(d.el); return; }
     if (cancel || !d.plan) return;
     const p = d.plan;
+    if (p.blocked) { toast(p.reasons[0], true); return; }
     commit(p.st, { snap: [p.focus], bump: p.moved.map((x) => x.id) });
     if (p.kind === "clash") toast(tr("Placed with a clash. {0}", p.reasons[0]), true);
     else if (p.moved.length) toast(p.moved.map(movedText).join(" · "));
@@ -606,7 +625,7 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
   });
   // test hook: same logic as a pointer drop
   window.__bm = { hist: () => hist.length, version: () => version, state: () => S,
-    drop: (type, id, target) => { const p = simulate({ type: type, id: id }, target); if (p) commit(p.st, { snap: [p.focus], bump: p.moved.map((x) => x.id) }); return p && { kind: p.kind, text: p.text }; } };
+    drop: (type, id, target) => { const p = simulate({ type: type, id: id }, target); if (p && p.blocked) return { kind: p.kind, text: p.text, blocked: true }; if (p) commit(p.st, { snap: [p.focus], bump: p.moved.map((x) => x.id) }); return p && { kind: p.kind, text: p.text }; } };
   ST.ready();
 })();
 </script>
