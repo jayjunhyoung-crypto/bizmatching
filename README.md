@@ -41,6 +41,7 @@ bizmatch/
   - **Red**: a clash, for example the startup or host is not available then. You can still drop it, and it stays marked with a red `!` until it is fixed.
 - Pitch polishing slots can be dragged the same way. A startup's meeting at the new polishing time gets pushed away.
 - Drop a meeting on **Unplaced** to take it out of the schedule, then drag it back later. Click a meeting to set its status, pin it or unschedule it. Ctrl+Z or ↶ Undo reverts a change.
+- **Pitching practice** table under the board: Time, Startup, Presenter, Round (1st/2nd), Status and Focus / Mentor Note for each polishing session. It is the same data as the board. Dragging a polishing slot on the board changes its time here, and a status or note set here shows on the board.
 - Meetings you move are pinned. When you generate again with *Keep pinned meetings* ticked, they stay where you put them.
 - NOT HERE / ONLY notes stay hidden until you press **Show attendance notes**. In the Excel file they sit in a folded row group, opened with the `+` in the left margin.
 - A timeline for each day in the team's sheet layout: Session, Time Slot, Table 1 / Status 1 … Table N / Status N, **Polishing Schedule** and **Waiting List** (startups that are neither in a meeting nor in polishing, or `None (All in Sessions)`). The live board in the app also shows resting hosts.
@@ -50,7 +51,7 @@ bizmatch/
 - The live status board lets you override any meeting, for example to mark a No-Show. A manual status always wins over the clock.
 - An independent verifier re-checks every hard rule on the final schedule and shows the result.
 - Startup summary (name, total meetings, partners matched on each day) and host summary.
-- **Download Excel**. Sheets: `Matching Schedule`, `Startup Summary`, `Host Summary`, `All Meetings`. Every meeting has a Status dropdown, and its colour changes with the status (conditional formatting). Each meeting cell reads `Startup` with `(Contact - Organisation)` below it, filled with the host's colour, and a No-Show greys it out and strikes it through. Upload the file to Google Drive and open it with Google Sheets: the dropdowns and colours keep working there, so the sheet can be the live board on the day. The sheet prints landscape, fitted to page width.
+- **Download Excel**. Sheets: `Matching Schedule`, `Pitching Practice Schedule`, `Startup Summary`, `Host Summary`, `All Meetings`. The POLISHING SCHEDULE column of the main sheet is a formula that reads the Pitching Practice sheet, so changing a startup there in Excel or Google Sheets updates the main schedule too. Every meeting has a Status dropdown, and its colour changes with the status (conditional formatting). Each meeting cell reads `Startup` with `(Contact - Organisation)` below it, filled with the host's colour, and a No-Show greys it out and strikes it through. Upload the file to Google Drive and open it with Google Sheets: the dropdowns and colours keep working there, so the sheet can be the live board on the day. The sheet prints landscape, fitted to page width.
 
 ## Participant columns
 
@@ -58,6 +59,7 @@ bizmatch/
 |---|---|---|---|
 | Name | ✓ | ✓ | Unique (for hosts, the organisation) |
 | Contact | | ✓ | Person attending, shown as `Raymond · Focus Tech` |
+| Presenter | ✓ | | Who pitches, e.g. `Jay & Serena`. Shown in the pitching practice schedule |
 | Domain | ✓ | | `Fintech` or `Climate, Hardware` |
 | Type | | ✓ | Investor, Corporate, Agency, Mentor, Other |
 | Days | ✓ | ✓ | Blank or `All` = every day. Otherwise `Day 2`, `1,2`, or your day label. `Not here` (or `None`, `Absent`) = not attending, listed under NOT HERE |

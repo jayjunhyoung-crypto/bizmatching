@@ -46,7 +46,7 @@ PACKING = {
     "block": "Contiguous block: no gaps, may start later",
     "soft": "Soft: minimise gaps",
 }
-STARTUP_COLS = ["Name", "Domain", "Days", "Available From", "Available Until",
+STARTUP_COLS = ["Name", "Presenter", "Domain", "Days", "Available From", "Available Until",
                 "Blocked Times", "Priority", "Pitch Polishing", "Max Meetings"]
 ABSENT_WORDS = ("none", "no", "absent", "not here", "not attending", "cancelled", "canceled",
                 "x", "dropped", "withdrawn")
@@ -289,6 +289,7 @@ class Party:
     contact: str = ""                  # host contact person
     domain_text: str = ""
     polish: bool = True                # startup takes part in pitch polishing
+    presenter: str = ""                # startup person who pitches / attends
 
     @property
     def absent(self) -> bool:
@@ -403,7 +404,8 @@ def parse_parties(df: pd.DataFrame, role: str, labels: list[str]) -> tuple[list[
                 pv = row.get("Pitch Polishing")
                 kw.update(domains=frozenset(norm(x) for x in doms),
                           priority=to_bool(row.get("Priority")), domain_text=", ".join(doms),
-                          polish=True if is_blank(pv) else to_bool(pv))
+                          polish=True if is_blank(pv) else to_bool(pv),
+                          presenter="" if is_blank(row.get("Presenter")) else str(row.get("Presenter")).strip())
             else:
                 kind = "" if is_blank(row.get("Type")) else str(row.get("Type")).strip()
                 kw.update(excluded=frozenset(norm(x) for x in split_list(row.get("Excluded Domains"))),
@@ -728,11 +730,8 @@ def now_for(cfg: EventConfig) -> datetime:
         return datetime.now(ZoneInfo("UTC"))
 
 
-def eff_status(m: Meeting, cfg: EventConfig, statuses: dict, now: datetime) -> str:
-    s = statuses.get(m.mid)
-    if s in STATUSES:
-        return s
-    dd = cfg.day_date(m.day)
+def auto_status(day: int, start: int, end: int, cfg: EventConfig, now: datetime) -> str:
+    dd = cfg.day_date(day)
     if dd is None:
         return "Scheduled"
     today, nm = now.date(), now.hour * 60 + now.minute
@@ -740,7 +739,17 @@ def eff_status(m: Meeting, cfg: EventConfig, statuses: dict, now: datetime) -> s
         return "Done"
     if dd > today:
         return "Scheduled"
-    return "Scheduled" if nm < m.start else ("Ongoing" if nm < m.end else "Done")
+    return "Scheduled" if nm < start else ("Ongoing" if nm < end else "Done")
+
+
+def eff_status(m: Meeting, cfg: EventConfig, statuses: dict, now: datetime) -> str:
+    s = statuses.get(m.mid)
+    return s if s in STATUSES else auto_status(m.day, m.start, m.end, cfg, now)
+
+
+def pol_status(p: Polish, cfg: EventConfig, statuses: dict, now: datetime) -> str:
+    s = statuses.get(p.pid)
+    return s if s in STATUSES else auto_status(p.day, p.start, p.end, cfg, now)
 
 
 def day_rows(day: int, cfg: EventConfig, slots: list[Slot], startups: list[Party],
@@ -814,6 +823,7 @@ def startup_summary(cfg, startups, hosts, meetings, statuses, now, sep=" • ", 
         ms = sorted(by_s[s.name], key=lambda m: m.k)
         rec = {
             "Startup Name": s.name,
+            "Presenter": s.presenter,
             "Attendance": attendance(cfg, s),
             "Domain": s.domain_text,
             "Priority": "★" if s.priority else "",
@@ -980,11 +990,103 @@ def attendance_notes(cfg: EventConfig, startups) -> list[tuple[str, str]]:
     return notes
 
 
-def build_excel(cfg, slots, startups, hosts, meetings, statuses, now, polish=()) -> bytes:
+PP_TITLE = "Pitching Practice Schedule"
+
+
+def build_practice_sheet(wb, cfg, slots, startups, polish, statuses, now, notes, index=1):
+    """Pitching practice tab, one row per polishing seat. Returns {(day, k): [startup cell refs]}
+    so the main schedule can point at it with formulas."""
+    days = [d for d in range(len(cfg.days)) if d in cfg.pol_days or any(p.day == d for p in polish)]
+    if not days:
+        return {}
+    ws = wb.create_sheet(PP_TITLE, index)
+    ws.sheet_view.showGridLines = False
+    P = {x.name: x for x in startups}
+    grid = Side(style="thin", color=C_GRID)
+    box = Border(left=grid, right=grid, top=grid, bottom=grid)
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    left = Alignment(horizontal="left", vertical="center", wrap_text=True, indent=1)
+    for col, w in zip("ABCDEF", (2, 16, 26, 20, 14, 64)):
+        ws.column_dimensions[col].width = w
+    ws.row_dimensions[1].height = 10
+    ws.cell(2, 2, f"{cfg.name} - Pitching Practice Schedule ({cfg.interval}-Min Rehearsals)").font = _f(16, True, C_NAVY)
+    ws.row_dimensions[2].height = 28
+    cap = max(1, cfg.pol_cap)
+    by_k = defaultdict(list)
+    for p in polish:
+        by_k[p.k].append(p)
+    refs, status_cells, r = {}, [], 4
+    for d in days:
+        ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=6)
+        c = ws.cell(r, 2, day_banner(cfg, d).replace("Matching Schedule",
+                                                     f"Pitching Practice Schedule ({cfg.days[d]['label']})"))
+        c.font, c.alignment = _f(12, True, C_NAVY), Alignment(vertical="center", indent=1)
+        for cc in range(2, 7):
+            ws.cell(r, cc).fill = _fill("E8EDF7")
+        ws.row_dimensions[r].height = 24
+        r += 1
+        for cc, txt in enumerate((f"Time Slot ({cfg.interval}m)", "Startup", "Presenter", "Status",
+                                  "Focus / Mentor Note"), 2):
+            c = ws.cell(r, cc, txt)
+            c.fill, c.font, c.alignment, c.border = _fill(C_HEAD), _f(10, True, "FFFFFF"), center, box
+        ws.row_dimensions[r].height = 24
+        r += 1
+        for row in day_rows(d, cfg, slots, startups, [], []):
+            if row["lunch"]:
+                vals = (row["time"].replace("–", " - "), "LUNCH BREAK", "-", "-", "Lunch Break")
+                for cc, v in enumerate(vals, 2):
+                    c = ws.cell(r, cc, v)
+                    c.fill, c.border = _fill(C_BREAK), box
+                    c.font = _f(10, False, "6B7280", italic=True)
+                    c.alignment = left if cc in (3, 6) else center
+                r += 1
+                continue
+            if row.get("tables") is None:
+                continue
+            k, first = row["slot"].k, r
+            seats = sorted(by_k[k], key=lambda p: p.startup)
+            for i in range(cap):
+                p = seats[i] if i < len(seats) else None
+                ws.cell(r, 2, f"{fmt(row['start'])} - {fmt(row['end'])}" if i == 0 else None)
+                ws.cell(r, 3, p.startup if p else None).font = _f(10.5, True, C_INK)
+                ws.cell(r, 4, (P[p.startup].presenter if p and p.startup in P else None) or None).font = _f(10)
+                sc = ws.cell(r, 5, pol_status(p, cfg, statuses, now) if p else None)
+                sc.font = _f(10)
+                ws.cell(r, 6, notes.get(p.pid) if p else None).font = _f(10)
+                for cc in range(2, 7):
+                    ws.cell(r, cc).border = box
+                    ws.cell(r, cc).alignment = left if cc in (3, 6) else center
+                ws.cell(r, 2).font = _f(10.5, True)
+                status_cells.append(sc.coordinate)
+                refs.setdefault((d, k), []).append(f"C{r}")
+                ws.row_dimensions[r].height = max(22, 13 * _lines(notes.get(p.pid, "") if p else "", 64 * 1.1) + 9)
+                r += 1
+            if cap > 1:
+                ws.merge_cells(start_row=first, start_column=2, end_row=r - 1, end_column=2)
+        r += 1
+    dv = DataValidation(type="list", formula1='"' + ",".join(STATUSES) + '"', allow_blank=True)
+    for coord in status_cells:
+        dv.add(coord)
+    ws.add_data_validation(dv)
+    rng = f"E4:E{r}"
+    for s_, (bg, fg) in {**ST_STYLE, "Scheduled": ("E3EAFB", "1240E0")}.items():
+        ws.conditional_formatting.add(rng, CellIsRule(operator="equal", formula=[f'"{s_}"'],
+                                                      fill=_fill(bg), font=Font(color=fg, bold=True)))
+    ws.freeze_panes = "C1"
+    ws.page_setup.orientation = "landscape"
+    ws.page_setup.fitToWidth, ws.page_setup.fitToHeight = 1, 0
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    return refs
+
+
+def build_excel(cfg, slots, startups, hosts, meetings, statuses, now, polish=(), pol_notes=None) -> bytes:
     wb = Workbook()
     ws = wb.active
     ws.title = "Matching Schedule"
     ws.sheet_view.showGridLines = False
+    wb.calculation.fullCalcOnLoad = True
+    pp_refs = build_practice_sheet(wb, cfg, slots, startups, polish, statuses, now, pol_notes or {})
+    pol_empty = []
     T = cfg.tables
     H = {h.name: h for h in hosts}
     hcol = host_colors(hosts)
@@ -1083,10 +1185,19 @@ def build_excel(cfg, slots, startups, hosts, meetings, statuses, now, polish=())
                 mc.alignment, sc.alignment = center, center
                 mc.border = sc.border = box
             pc = ws.cell(r, PC)
-            if row["polish"]:
+            ref = pp_refs.get((d, row["slot"].k))
+            if ref:
+                # linked to the Pitching Practice sheet: edit the startup there and this cell follows
+                q = f"'{PP_TITLE}'!"
+                pc.value = (f'=IF({q}{ref[0]}="","",{q}{ref[0]})' if len(ref) == 1
+                            else f"=_xlfn.TEXTJOIN(CHAR(10),TRUE,{q}{ref[0]}:{ref[-1]})")
+                if not row["polish"]:
+                    pol_empty.append(pc.coordinate)
+            elif row["polish"]:
                 pc.value = "\n".join(p.startup for p in row["polish"])
+            pc.font = _f(10.5, True, C_INK)
+            if row["polish"]:
                 pc.fill = _fill(polish_fill(max(p.n for p in row["polish"])))
-                pc.font = _f(10.5, True, C_INK)
                 need = max(need, len(row["polish"]))
             pc.alignment, pc.border = center, box
             wc = ws.cell(r, WC, " • ".join(row["waiting"]) if row["waiting"] else "None (All in Sessions)")
@@ -1118,6 +1229,9 @@ def build_excel(cfg, slots, startups, hosts, meetings, statuses, now, polish=())
         bg, fg = ST_STYLE[s_]
         ws.conditional_formatting.add(srng, CellIsRule(operator="equal", formula=[f'"{s_}"'],
                                                        fill=_fill(bg), font=Font(color=fg, bold=True)))
+    for coord in pol_empty:
+        ws.conditional_formatting.add(coord, FormulaRule(formula=[f"LEN({coord})>0"],
+                                                         fill=_fill(POLISH_FILL[1])))
     for i in range(T):
         rng = f"{L(MC(i))}{first}:{L(MC(i))}{last}"
         ws.conditional_formatting.add(rng, FormulaRule(
@@ -1131,7 +1245,7 @@ def build_excel(cfg, slots, startups, hosts, meetings, statuses, now, polish=())
     sdf = startup_summary(cfg, startups, hosts, meetings, statuses, now, sep="\n", polish=polish)
     _table_sheet(wb, "Startup Summary", "Startup summary",
                  f"{len(meetings)} meetings across {sum(not s.absent for s in startups)} attending startups", sdf,
-                 {"Startup Name": 24, "Attendance": 16, "Domain": 18, "Priority": 9, "Total Meetings": 15,
+                 {"Startup Name": 24, "Presenter": 16, "Attendance": 16, "Domain": 18, "Priority": 9, "Total Meetings": 15,
                   "No-Shows": 11, "Eligible Hosts": 14, "Pitch Polishing": 18,
                   **{c_: 40 for c_ in sdf.columns if c_.endswith("Partners")}},
                  center=("Priority", "Total Meetings", "No-Shows", "Eligible Hosts"),
@@ -1193,7 +1307,10 @@ def sample_frames() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         ("Silo Sense", "AgriTech, Hardware", "", "11:00", "", "", False),
         ("Kite Insure", "Fintech", "", "", "", "", False),
     ]
-    startups = pd.DataFrame(s, columns=STARTUP_COLS[:7])
+    startups = pd.DataFrame(s, columns=["Name", "Domain", "Days", "Available From", "Available Until",
+                                        "Blocked Times", "Priority"])
+    startups["Presenter"] = ["Aiden", "Hana", "Kenji", "Ravi", "Mia", "Leon", "Sora", "Noah", "Yuna", "Clara",
+                             "Arun", "Jiwoo", "Ethan", "Min & Ivy", "Zoe", "Daniel", "Lily", "Ken", "Mateo", "Ava"]
     startups["Pitch Polishing"] = True
     startups["Max Meetings"] = None
     h = [
@@ -1226,6 +1343,7 @@ ALIASES = {
     "restricted times": "Blocked Times",
     "priority": "Priority", "max meetings": "Max Meetings", "max": "Max Meetings",
     "type": "Type", "host type": "Type",
+    "presenter": "Presenter", "speaker": "Presenter", "founder": "Presenter", "pitcher": "Presenter",
     "contact": "Contact", "contact person": "Contact", "person": "Contact", "representative": "Contact",
     "attendee": "Contact",
     "excluded domains": "Excluded Domains", "excludes": "Excluded Domains", "exclude": "Excluded Domains",
@@ -1326,6 +1444,7 @@ def init_state():
     s.init = True
     s.result = None
     s.statuses = {}
+    s.pol_notes = {}
     s.auto_refresh = True
     set_frames(*sample_frames())
 
@@ -1377,21 +1496,22 @@ def project_json() -> str:
         "days": cfg.days,
         "startups": s.s_df.to_dict("records"),
         "hosts": s.h_df.to_dict("records"),
-        "result": s.result and {k: v for k, v in s.result.items() if k in ("meetings", "polish", "packing", "status", "hash")},
+        "result": s.result and {k: v for k, v in s.result.items() if k in ("meetings", "polish", "parked", "packing", "status", "hash")},
         "statuses": s.statuses,
+        "pol_notes": s.get("pol_notes", {}),
     }, default=str, indent=1)
 
 
 # Callbacks (run before the script body, so they may reset widget state)
 def cb_sample():
     set_frames(*sample_frames())
-    ss().result, ss().statuses = None, {}
+    ss().result, ss().statuses, ss().pol_notes = None, {}, {}
 
 
 def cb_blank():
     set_frames(*blank_frames())
     ss().ev_name = "New Matching Event"
-    ss().result, ss().statuses = None, {}
+    ss().result, ss().statuses, ss().pol_notes = None, {}, {}
 
 
 def cb_upload(role: str):
@@ -1437,6 +1557,7 @@ def cb_project():
         else:
             ss().result = None
         ss().statuses = data.get("statuses", {}) or {}
+        ss().pol_notes = data.get("pol_notes", {}) or {}
         ss().flash = ("success", f"Loaded project {f.name}")
     except Exception as e:  # noqa: BLE001
         ss().flash = ("error", f"Could not load project: {e}")
@@ -1445,6 +1566,28 @@ def cb_project():
 # --------------------------------------------------------------------------------------
 # Drag-and-drop board (custom component in ./board)
 # --------------------------------------------------------------------------------------
+def cb_practice_edit(key: str, ids: list[str]):
+    """Status / note edits in the pitching practice table. Bumping the version reloads the board."""
+    s = ss()
+    for i, ch in s[key].get("edited_rows", {}).items():
+        if i >= len(ids):
+            continue
+        pid = ids[i]
+        if "Status" in ch:
+            if ch["Status"] in STATUSES:
+                s.statuses[pid] = ch["Status"]
+            else:
+                s.statuses.pop(pid, None)
+        if "Focus / Mentor Note" in ch:
+            v = (ch["Focus / Mentor Note"] or "").strip()
+            if v:
+                s.pol_notes[pid] = v
+            else:
+                s.pol_notes.pop(pid, None)
+    if s.result:
+        s.result["version"] = f"py-{int(_time.time() * 1000)}"
+
+
 def board_payload(day, cfg, slots, startups, hosts, r) -> dict:
     ds = [x for x in slots if x.day == day]
     polish = [Polish(**p) for p in r.get("polish", [])]
@@ -1467,7 +1610,8 @@ def board_payload(day, cfg, slots, startups, hosts, r) -> dict:
         "version": r.get("version") or f"py-{r['id']}",
         "day": day, "tables": cfg.tables, "tz": cfg.tz, "date": str(cfg.day_date(day) or ""),
         "rows": rows, "sessions": cfg.session_list(),
-        "startups": [{"name": x.name, "priority": x.priority, "avail": [z.k for z in ds if x.available(z)]}
+        "startups": [{"name": x.name, "priority": x.priority, "presenter": x.presenter,
+                      "avail": [z.k for z in ds if x.available(z)]}
                      for x in startups if not x.absent],
         "hosts": [{"name": h.name, "contact": h.contact, "color": hcol[h.name], "text": text_on(hcol[h.name]),
                    "avail": [z.k for z in ds if h.available(z)]} for h in hosts],
@@ -1476,7 +1620,8 @@ def board_payload(day, cfg, slots, startups, hosts, r) -> dict:
                      for m in r["meetings"] if m["day"] == day],
         "parked": [{"id": f"{m['startup']}|{m['host']}", "startup": m["startup"], "host": m["host"],
                     "k": None, "table": 0, "lock": False} for m in r.get("parked", []) if m["day"] == day],
-        "polish": [{"id": p.pid, "startup": p.startup, "k": p.k} for p in day_pol],
+        "polish": [{"id": p.pid, "startup": p.startup, "k": p.k, "note": ss().get("pol_notes", {}).get(p.pid, "")}
+                   for p in day_pol],
         "polOn": day in cfg.pol_days or bool(day_pol),
         "polOk": [z.k for z in ds if cfg.polish_ok(z)], "polCap": max(1, cfg.pol_cap),
         "polPrior": dict(prior), "statuses": dict(ss().statuses),
@@ -1488,8 +1633,9 @@ def apply_board(r, cfg, slots, startups, hosts, day, val) -> bool:
     """Take the edits made on the board (moves, pushes, statuses) into the stored result."""
     if not isinstance(val, dict) or val.get("day") != day or not val.get("version"):
         return False
-    if val["version"] == r.get("version"):
+    if val["version"] == r.get("version") or val["version"] in r.get("applied", []):
         return False
+    r.setdefault("applied", []).append(val["version"])
     sl = {x.k: x for x in slots if x.day == day}
     kept = [m for m in r["meetings"] if m["day"] != day]
     new = [asdict(Meeting(day, x["k"], sl[x["k"]].start, sl[x["k"]].end, x["startup"], x["host"],
@@ -1583,6 +1729,7 @@ def setup_tab():
             "Blocked Times": st.column_config.TextColumn(
                 help="Restricted windows, e.g. Day 1 14:00-15:00; 16:20-16:40", width="medium"),
             "Priority": st.column_config.CheckboxColumn(help="Gets more meetings when slots are scarce"),
+            "Presenter": st.column_config.TextColumn(help="Who pitches, e.g. Jay & Serena"),
             "Pitch Polishing": st.column_config.CheckboxColumn(default=True,
                                                                help="Gets a pitch polishing slot each polishing day"),
             "Max Meetings": st.column_config.NumberColumn(min_value=0, step=1, format="%d",
@@ -1770,6 +1917,28 @@ def results_tab():
     if soft:
         st.caption(f"Note: {len(soft)} host schedule(s) now have a gap after manual moves.")
 
+    day_pol = sorted([p for p in polish if p.day == day], key=lambda p: (p.k, p.startup))
+    if day_pol or day in cfg.pol_days:
+        st.subheader("Pitching practice")
+        st.caption("The same sessions as the Pitch polishing column on the board. Drag them on the board to change "
+                   "the time. Status and Focus / Mentor Note edited here show on the board and in the Excel file.")
+        P_ = {x.name: x for x in startups}
+        pdf = pd.DataFrame([{
+            "Time": f"{fmt(p.start)}–{fmt(p.end)}", "Startup": p.startup,
+            "Presenter": P_[p.startup].presenter if p.startup in P_ else "",
+            "Round": {1: "1st", 2: "2nd"}.get(p.n, f"{p.n}th"),
+            "Status": s.statuses.get(p.pid, "Auto"),
+            "Focus / Mentor Note": s.pol_notes.get(p.pid, ""),
+        } for p in day_pol], columns=["Time", "Startup", "Presenter", "Round", "Status", "Focus / Mentor Note"])
+        pkey = f"pp_{r['id']}_{day}_{r.get('version', '')}"
+        st.data_editor(pdf, key=pkey, hide_index=True, disabled=["Time", "Startup", "Presenter", "Round"],
+                       on_change=cb_practice_edit, args=(pkey, [p.pid for p in day_pol]),
+                       column_config={
+                           "Status": st.column_config.SelectboxColumn(options=STATUS_CHOICES, required=True,
+                                                                      help="Auto follows the clock"),
+                           "Presenter": st.column_config.TextColumn(help="Edit presenters in tab 1"),
+                           "Focus / Mentor Note": st.column_config.TextColumn(width="large")})
+
     st.subheader("Startup summary")
     st.dataframe(startup_summary(cfg, startups, hosts, meetings, s.statuses, now, polish=polish), hide_index=True)
     with st.expander("Host summary"):
@@ -1778,7 +1947,8 @@ def results_tab():
     stamp = now.strftime("%Y%m%d_%H%M")
     a, b = st.columns(2)
     a.download_button("Download Excel (.xlsx)",
-                      build_excel(cfg, slots, startups, hosts, meetings, s.statuses, now, polish),
+                      build_excel(cfg, slots, startups, hosts, meetings, s.statuses, now, polish,
+                                  s.get("pol_notes", {})),
                       f"matching_schedule_{stamp}.xlsx",
                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary")
     b.download_button("Download meetings (.csv)",
