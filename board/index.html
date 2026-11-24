@@ -114,6 +114,37 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
   };
 
   const STATUSES = ["Scheduled", "Ongoing", "Done", "No-Show"];
+  const I18N = {
+    en: {},
+    ko: {
+      "Scheduled": "예정", "Ongoing": "진행 중", "Done": "완료", "No-Show": "노쇼",
+      "Undo": "되돌리기", "Undone": "되돌렸어요", "No clashes": "충돌 없음", "{0} clash": "충돌 {0}건", "{0} clashes": "충돌 {0}건",
+      "Show attendance notes": "참석 메모 보기", "Hide attendance notes": "참석 메모 숨기기", "Now {0}": "지금 {0}",
+      "fits": "들어감", "pushes others": "다른 일정 밀어냄", "clash": "충돌",
+      "Unplaced": "미배정", "Drag a meeting here to unschedule it": "미팅을 여기로 끌어오면 일정에서 빠져요",
+      "None (all in sessions)": "없음 (모두 미팅 중)",
+      "{0} is not available at {1}": "{0}은(는) {1}에 참석할 수 없어요",
+      "{0} is also meeting {1} at {2}": "{0}은(는) {2}에 {1}와(과)도 미팅이 있어요",
+      "{0} {1} is double booked": "{0} {1}에 두 미팅이 잡혔어요",
+      "{0} is in pitch polishing at {1}": "{0}은(는) {1}에 피치 폴리싱 중이에요",
+      "Pitch polishing does not run at {0}": "{0}에는 피치 폴리싱을 하지 않아요",
+      "{0} has a meeting with {1} at {2}": "{0}은(는) {2}에 {1}와(과) 미팅이 있어요",
+      "Only {0} polishing slot(s) at {1}": "{1}에는 폴리싱 자리가 {0}개뿐이에요",
+      "Unschedule {0} with {1}": "{0} × {1} 미팅을 일정에서 빼기",
+      "{0} with {1}": "{0} × {1}", "{0} polishing": "{0} 폴리싱",
+      "Pushes {0} to {1}": "{0} → {1}(으)로 밀림", "Pushes {0} to Unplaced": "{0} → 미배정으로 밀림",
+      "{0} cannot move and now clashes": "{0}은(는) 옮길 곳이 없어 충돌이 생겨요",
+      "{0} pitch polishing → {1}": "{0} 피치 폴리싱 → {1}",
+      "Placed with a clash. {0}": "충돌이 있는 채로 놓았어요. {0}",
+      "with {0}": "{0}와(과)", "unplaced": "미배정", "Auto (follows the clock)": "자동 (시간에 따라)",
+      "Pin here": "여기에 고정", "Unpin": "고정 해제", "Unschedule": "일정에서 빼기",
+      "Drag it onto a table to schedule it": "테이블로 끌어다 놓으면 일정에 들어가요",
+      "pitch polishing": "피치 폴리싱", "Focus: {0}": "포커스: {0}", "Remove this polishing slot": "이 폴리싱 일정 삭제",
+      "1st": "1회차", "2nd": "2회차", "{0}th": "{0}회차", "polishing": "폴리싱", "Table": "테이블",
+    },
+  };
+  const tr = (k, ...a) => { const t = (D && I18N[D.lang] && I18N[D.lang][k]) || k; return t.replace(/\{(\d)\}/g, (_, i) => a[+i]); };
+  const stName = (s) => tr(s);
   const PIN = '<svg class="pin" viewBox="0 0 16 16"><path fill="currentColor" d="M10.4 1.2l4.4 4.4-1.5.7-2.5 2.5.3 3.2-1.4 1.4-2.9-2.9L2.6 14.7l-1.3-1.3 4.2-4.2-2.9-2.9L4 4.9l3.2.3 2.5-2.5z"/></svg>';
   let D = null;            // static data for the day (people, rows, colours)
   let S = null;            // editable state: meetings, parked, polish, statuses
@@ -161,24 +192,24 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
   function meetingClash(st, m) {
     if (m.k == null) return [];
     const r = [], sl = slotOf(m.k), S_ = D.startups[m.startup], H_ = D.hosts[m.host];
-    if (!avail(S_, m.k)) r.push(m.startup + " is not available at " + fmt(sl.start));
-    if (!avail(H_, m.k)) r.push(m.host + " is not available at " + fmt(sl.start));
+    if (!avail(S_, m.k)) r.push(tr("{0} is not available at {1}", m.startup, fmt(sl.start)));
+    if (!avail(H_, m.k)) r.push(tr("{0} is not available at {1}", m.host, fmt(sl.start)));
     st.meetings.forEach((x) => {
       if (x.id === m.id || x.k !== m.k) return;
-      if (x.startup === m.startup) r.push(m.startup + " is also meeting " + x.host + " at " + fmt(sl.start));
-      if (x.host === m.host) r.push(m.host + " is also meeting " + x.startup + " at " + fmt(sl.start));
-      if (x.table === m.table) r.push("Table " + m.table + " is double booked");
+      if (x.startup === m.startup) r.push(tr("{0} is also meeting {1} at {2}", m.startup, x.host, fmt(sl.start)));
+      if (x.host === m.host) r.push(tr("{0} is also meeting {1} at {2}", m.host, x.startup, fmt(sl.start)));
+      if (x.table === m.table) r.push(tr("{0} {1} is double booked", (D.names && D.names.table) || "Table", m.table));
     });
-    st.polish.forEach((p) => { if (p.k === m.k && p.startup === m.startup) r.push(m.startup + " is in pitch polishing at " + fmt(sl.start)); });
+    st.polish.forEach((p) => { if (p.k === m.k && p.startup === m.startup) r.push(tr("{0} is in pitch polishing at {1}", m.startup, fmt(sl.start))); });
     return r;
   }
   function polishClash(st, p) {
     const r = [], sl = slotOf(p.k);
-    if (!D.polOk[p.k]) r.push("Pitch polishing does not run at " + fmt(sl.start));
-    if (!avail(D.startups[p.startup], p.k)) r.push(p.startup + " is not available at " + fmt(sl.start));
-    st.meetings.forEach((m) => { if (m.k === p.k && m.startup === p.startup) r.push(p.startup + " has a meeting with " + m.host + " at " + fmt(sl.start)); });
+    if (!D.polOk[p.k]) r.push(tr("Pitch polishing does not run at {0}", fmt(sl.start)));
+    if (!avail(D.startups[p.startup], p.k)) r.push(tr("{0} is not available at {1}", p.startup, fmt(sl.start)));
+    st.meetings.forEach((m) => { if (m.k === p.k && m.startup === p.startup) r.push(tr("{0} has a meeting with {1} at {2}", p.startup, m.host, fmt(sl.start))); });
     const n = st.polish.filter((x) => x.k === p.k).length;
-    if (n > D.polCap) r.push("Only " + D.polCap + " polishing slot(s) at " + fmt(sl.start));
+    if (n > D.polCap) r.push(tr("Only {0} polishing slot(s) at {1}", D.polCap, fmt(sl.start)));
     return r;
   }
   function allClashes(st) {
@@ -222,8 +253,8 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
     }
     return null;
   }
-  const movedText = (x) => x.to == null ? "Pushes " + x.name + " to Unplaced"
-    : x.to === "stays (clash)" ? x.name + " cannot move and now clashes" : "Pushes " + x.name + " to " + x.to;
+  const movedText = (x) => x.to == null ? tr("Pushes {0} to Unplaced", x.name)
+    : x.to === "stays (clash)" ? tr("{0} cannot move and now clashes", x.name) : tr("Pushes {0} to {1}", x.name, x.to);
   const range = (a, b) => { const r = []; for (let i = a; i <= b; i++) r.push(i); return r; };
 
   // ---------------- simulate a drop ----------------
@@ -236,7 +267,7 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
       st.parked = st.parked.filter((m) => m.id !== A.id);
       if (target.type === "tray") {
         st.parked.push(Object.assign({}, A, { k: null, table: 0, lock: false }));
-        return { st: st, moved: moved, kind: "fit", reasons: [], text: "Unschedule " + A.startup + " with " + A.host };
+        return { st: st, moved: moved, kind: "fit", reasons: [], text: tr("Unschedule {0} with {1}", A.startup, A.host) };
       }
       const k = target.k, t = target.t;
       const a = Object.assign({}, A, { k: k, table: t, lock: true });
@@ -247,17 +278,17 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
       st.meetings.push(a);
       disp.forEach((x) => {
         const sp = findSpot(st, x, [k], A.k != null ? { k: A.k, t: A.table } : null);
-        if (sp) { st.meetings.push(Object.assign({}, x, { k: sp.k, table: sp.t })); moved.push({ id: x.id, name: x.startup + " with " + x.host, to: fmt(slotOf(sp.k).start) }); }
-        else { st.parked.push(Object.assign({}, x, { k: null, table: 0 })); moved.push({ id: x.id, name: x.startup + " with " + x.host, to: null }); }
+        if (sp) { st.meetings.push(Object.assign({}, x, { k: sp.k, table: sp.t })); moved.push({ id: x.id, name: tr("{0} with {1}", x.startup, x.host), to: fmt(slotOf(sp.k).start) }); }
+        else { st.parked.push(Object.assign({}, x, { k: null, table: 0 })); moved.push({ id: x.id, name: tr("{0} with {1}", x.startup, x.host), to: null }); }
       });
       dispP.forEach((p) => {
         const c = findPolSpot(st, p, [k]);
         st.polish.push(Object.assign({}, p, { k: c == null ? p.k : c }));
-        moved.push({ id: p.id, name: p.startup + " polishing", to: c == null ? "stays (clash)" : fmt(slotOf(c).start) });
+        moved.push({ id: p.id, name: tr("{0} polishing", p.startup), to: c == null ? "stays (clash)" : fmt(slotOf(c).start) });
       });
       const reasons = meetingClash(st, a);
       const kind = reasons.length ? "clash" : moved.length ? "push" : "fit";
-      let text = A.startup + " with " + A.host + " → " + fmt(slotOf(k).start) + ", Table " + t;
+      let text = tr("{0} with {1}", A.startup, A.host) + " → " + fmt(slotOf(k).start) + ", " + ((D.names && D.names.table) || "Table") + " " + t;
       if (moved.length) text += "\n" + moved.map(movedText).join("\n");
       if (reasons.length) text += "\n" + reasons.join("\n");
       return { st: st, moved: moved, kind: kind, reasons: reasons, text: text, focus: a.id };
@@ -276,17 +307,17 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
     st.polish.push(p2);
     disp.forEach((x) => {
       const sp = findSpot(st, x, [k], null);
-      if (sp) { st.meetings.push(Object.assign({}, x, { k: sp.k, table: sp.t })); moved.push({ id: x.id, name: x.startup + " with " + x.host, to: fmt(slotOf(sp.k).start) }); }
-      else { st.parked.push(Object.assign({}, x, { k: null, table: 0 })); moved.push({ id: x.id, name: x.startup + " with " + x.host, to: null }); }
+      if (sp) { st.meetings.push(Object.assign({}, x, { k: sp.k, table: sp.t })); moved.push({ id: x.id, name: tr("{0} with {1}", x.startup, x.host), to: fmt(slotOf(sp.k).start) }); }
+      else { st.parked.push(Object.assign({}, x, { k: null, table: 0 })); moved.push({ id: x.id, name: tr("{0} with {1}", x.startup, x.host), to: null }); }
     });
     bump.forEach((q) => {
       const c = P.k != null && D.polOk[P.k] && avail(D.startups[q.startup], P.k) && !busy(st, P.k).s.has(q.startup) ? P.k : findPolSpot(st, q, [k]);
       st.polish.push(Object.assign({}, q, { k: c == null ? q.k : c }));
-      moved.push({ id: q.id, name: q.startup + " polishing", to: c == null ? "stays (clash)" : fmt(slotOf(c).start) });
+      moved.push({ id: q.id, name: tr("{0} polishing", q.startup), to: c == null ? "stays (clash)" : fmt(slotOf(c).start) });
     });
     const reasons = polishClash(st, p2);
     const kind = reasons.length ? "clash" : moved.length ? "push" : "fit";
-    let text = P.startup + " pitch polishing → " + fmt(slotOf(k).start);
+    let text = tr("{0} pitch polishing → {1}", P.startup, fmt(slotOf(k).start));
     if (moved.length) text += "\n" + moved.map(movedText).join("\n");
     if (reasons.length) text += "\n" + reasons.join("\n");
     return { st: st, moved: moved, kind: kind, reasons: reasons, text: text, focus: p2.id };
@@ -309,7 +340,7 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
     S.meetings = h.meetings; S.parked = h.parked; S.polish = h.polish; S.statuses = h.statuses;
     version = "js-" + Date.now() + "-u"; mine.add(version);
     ST.value({ version: version, day: D.day, meetings: S.meetings, parked: S.parked, polish: S.polish, statuses: S.statuses });
-    render(); toast("Undone");
+    render(); toast(tr("Undone"));
   }
 
   // ---------------- render ----------------
@@ -321,17 +352,17 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
     const who = H_.contact ? "(" + esc(H_.contact) + " - " + esc(m.host) + ")" : "(" + esc(m.host) + ")";
     const title = bad ? ' title="' + esc(meetingClash(st, m).join("\n")) + '"' : "";
     return '<div class="' + cls + '" data-drag="m" data-id="' + esc(m.id) + '" style="background:#' + H_.color + ";color:#" + H_.text + '"' + title + ">"
-      + (m.lock ? PIN : "") + "<b>" + star + esc(m.startup) + '</b><span class="h">' + who + '</span><span class="st ' + s + '">' + s + "</span></div>";
+      + (m.lock ? PIN : "") + "<b>" + star + esc(m.startup) + '</b><span class="h">' + who + '</span><span class="st ' + s + '">' + stName(s) + "</span></div>";
   }
   function polHTML(p, clashSet) {
     const n = (D.polPrior[p.startup] || 0) + 1;
     const bg = n === 1 ? "F4CCCC" : n === 2 ? "FFE599" : "D0E0E3";
     const s = statusOf(p), who = (D.startups[p.startup] || {}).presenter;
     const cls = ["chip pol", clashSet.has(p.id) ? "bad" : "", s === "No-Show" ? "ns" : "", s === "Done" ? "done" : "", s === "Ongoing" ? "ongoing" : ""].join(" ");
-    const tip = [p.note ? "Focus: " + p.note : ""].concat(clashSet.has(p.id) ? polishClash(S, p) : []).filter(Boolean).join("\n");
+    const tip = [p.note ? tr("Focus: {0}", p.note) : ""].concat(clashSet.has(p.id) ? polishClash(S, p) : []).filter(Boolean).join("\n");
     return '<div class="' + cls + '" data-drag="p" data-id="' + esc(p.id) + '" style="background:#' + bg + '"' + (tip ? ' title="' + esc(tip) + '"' : "") + "><b>"
-      + esc(p.startup) + "</b><small>" + (who ? esc(who) + " · " : "") + (n === 1 ? "1st" : n === 2 ? "2nd" : n + "th") + " polishing" + (p.note ? " ✎" : "")
-      + '</small><span class="st ' + s + '">' + s + "</span></div>";
+      + esc(p.startup) + "</b><small>" + (who ? esc(who) + " · " : "") + (n === 1 ? tr("1st") : n === 2 ? tr("2nd") : tr("{0}th", n)) + " " + tr("polishing") + (p.note ? " ✎" : "")
+      + '</small><span class="st ' + s + '">' + stName(s) + "</span></div>";
   }
   function render() {
     if (!D) return;
@@ -365,19 +396,19 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
       if (D.polOn) row += '<td><div class="cell pc" data-pcell="' + r.k + '">' + (polAt[r.k] || []).map((p) => polHTML(p, clashSet)).join("") + "</div></td>";
       const b = busy(st, r.k);
       const waiting = Object.keys(D.startups).filter((s) => D.startups[s].avail[r.k] && !b.s.has(s));
-      row += '<td class="wait">' + (waiting.length ? waiting.map(esc).join(" • ") : "<i>None (all in sessions)</i>") + "</td></tr>";
+      row += '<td class="wait">' + (waiting.length ? waiting.map(esc).join(" • ") : "<i>" + tr("None (all in sessions)") + "</i>") + "</td></tr>";
       body += row;
     });
-    const notes = D.notes.length ? '<button class="btn' + (showNotes ? " on" : "") + '" data-act="notes">' + (showNotes ? "Hide" : "Show") + " attendance notes</button>" : "";
+    const notes = D.notes.length ? '<button class="btn' + (showNotes ? " on" : "") + '" data-act="notes">' + tr(showNotes ? "Hide attendance notes" : "Show attendance notes") + "</button>" : "";
     const parked = st.parked.map((m) => chipHTML(m, st, new Set([m.id]))).join("");
     document.getElementById("app").innerHTML =
-      '<div class="bar"><button class="btn" data-act="undo"' + (hist.length ? "" : " disabled") + ">↶ Undo</button>"
-      + (clashes.length ? '<span class="pill bad" data-act="clashes" title="' + esc(clashes.map((c) => c.text).join("\n")) + '">' + clashes.length + " clash" + (clashes.length > 1 ? "es" : "") + "</span>" : '<span class="pill"><i style="background:var(--green)"></i>No clashes</span>')
-      + STATUSES.map((s) => '<span class="pill"><i style="background:' + { Scheduled: "#9ca3af", Ongoing: "#1240e0", Done: "#16a34a", "No-Show": "#d92d20" }[s] + '"></i>' + counts[s] + " " + s + "</span>").join("")
-      + notes + '<span class="spacer"></span>' + (n.cmp === 0 ? '<span class="clock">Now ' + n.hm + "</span>" : "")
-      + '<span class="legend"><span><i style="background:rgba(20,164,77,.35)"></i>fits</span><span><i style="background:rgba(224,138,0,.4)"></i>pushes others</span><span><i style="background:rgba(217,45,32,.4)"></i>clash</span></span></div>'
+      '<div class="bar"><button class="btn" data-act="undo"' + (hist.length ? "" : " disabled") + ">↶ " + tr("Undo") + "</button>"
+      + (clashes.length ? '<span class="pill bad" data-act="clashes" title="' + esc(clashes.map((c) => c.text).join("\n")) + '">' + tr(clashes.length > 1 ? "{0} clashes" : "{0} clash", clashes.length) + "</span>" : '<span class="pill"><i style="background:var(--green)"></i>' + tr("No clashes") + "</span>")
+      + STATUSES.map((s) => '<span class="pill"><i style="background:' + { Scheduled: "#9ca3af", Ongoing: "#1240e0", Done: "#16a34a", "No-Show": "#d92d20" }[s] + '"></i>' + counts[s] + " " + stName(s) + "</span>").join("")
+      + notes + '<span class="spacer"></span>' + (n.cmp === 0 ? '<span class="clock">' + tr("Now {0}", n.hm) + "</span>" : "")
+      + '<span class="legend"><span><i style="background:rgba(20,164,77,.35)"></i>' + tr("fits") + '</span><span><i style="background:rgba(224,138,0,.4)"></i>' + tr("pushes others") + '</span><span><i style="background:rgba(217,45,32,.4)"></i>' + tr("clash") + "</span></span></div>"
       + (showNotes ? '<div class="notes">' + D.notes.map((x) => "<div><b>" + esc(x[0]) + ":</b> " + esc(x[1]) + "</div>").join("") + "</div>" : "")
-      + '<div class="tray" data-tray="1"><span class="lab">Unplaced</span>' + (parked || '<span style="color:var(--mut)">Drag a meeting here to unschedule it</span>') + "</div>"
+      + '<div class="tray" data-tray="1"><span class="lab">' + tr("Unplaced") + "</span>" + (parked || '<span style="color:var(--mut)">' + tr("Drag a meeting here to unschedule it") + "</span>") + "</div>"
       + '<div class="wrap" id="wrap"><table class="g"><thead>' + head + "</thead><tbody>" + body + "</tbody></table></div>";
     if (lastFlash) {
       (lastFlash.snap || []).forEach((id) => { const el = document.querySelector('[data-id="' + cssEsc(id) + '"]'); if (el) el.classList.add("snap"); });
@@ -467,7 +498,7 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
     if (cancel || !d.plan) return;
     const p = d.plan;
     commit(p.st, { snap: [p.focus], bump: p.moved.map((x) => x.id) });
-    if (p.kind === "clash") toast("Placed with a clash. " + p.reasons[0], true);
+    if (p.kind === "clash") toast(tr("Placed with a clash. {0}", p.reasons[0]), true);
     else if (p.moved.length) toast(p.moved.map(movedText).join(" · "));
   }
 
@@ -483,25 +514,25 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
     if (type === "m") {
       const cur = STATUSES.indexOf(S.statuses[id]) >= 0 ? S.statuses[id] : "Auto";
       const why = item.k != null ? meetingClash(S, item) : [];
-      h += '<div class="t">' + esc(item.startup) + "<small>with " + esc(item.host) + (item.k != null ? " · " + fmt(slotOf(item.k).start) + " · Table " + item.table : " · unplaced") + "</small></div>";
+      h += '<div class="t">' + esc(item.startup) + "<small>" + esc(tr("with {0}", item.host)) + (item.k != null ? " · " + fmt(slotOf(item.k).start) + " · " + esc((D.names && D.names.table) || "Table") + " " + item.table : " · " + tr("unplaced")) + "</small></div>";
       why.forEach((w) => (h += '<div class="why">' + esc(w) + "</div>"));
       if (item.k != null) {
         [["Auto", "#cbd2e0"], ["Scheduled", "#9ca3af"], ["Ongoing", "#1240e0"], ["Done", "#16a34a"], ["No-Show", "#d92d20"]].forEach((x) => {
-          h += '<button data-st="' + x[0] + '"' + (cur === x[0] ? ' class="cur"' : "") + '><span class="dot" style="background:' + x[1] + '"></span>' + (x[0] === "Auto" ? "Auto (follows the clock)" : x[0]) + "</button>";
+          h += '<button data-st="' + x[0] + '"' + (cur === x[0] ? ' class="cur"' : "") + '><span class="dot" style="background:' + x[1] + '"></span>' + (x[0] === "Auto" ? tr("Auto (follows the clock)") : stName(x[0])) + "</button>";
         });
-        h += '<button data-mact="pin">' + (item.lock ? "Unpin" : "Pin here") + "</button>";
-        h += '<button data-mact="park">Unschedule</button>';
-      } else h += '<div class="why" style="color:var(--mut)">Drag it onto a table to schedule it</div>';
+        h += '<button data-mact="pin">' + tr(item.lock ? "Unpin" : "Pin here") + "</button>";
+        h += '<button data-mact="park">' + tr("Unschedule") + "</button>";
+      } else h += '<div class="why" style="color:var(--mut)">' + tr("Drag it onto a table to schedule it") + "</div>";
     } else {
       const cur = STATUSES.indexOf(S.statuses[id]) >= 0 ? S.statuses[id] : "Auto";
       const who = (D.startups[item.startup] || {}).presenter;
-      h += '<div class="t">' + esc(item.startup) + "<small>pitch polishing · " + fmt(slotOf(item.k).start) + (who ? " · " + esc(who) : "") + "</small></div>";
-      if (item.note) h += '<div class="why" style="color:var(--mut)">Focus: ' + esc(item.note) + "</div>";
+      h += '<div class="t">' + esc(item.startup) + "<small>" + tr("pitch polishing") + " · " + fmt(slotOf(item.k).start) + (who ? " · " + esc(who) : "") + "</small></div>";
+      if (item.note) h += '<div class="why" style="color:var(--mut)">' + esc(tr("Focus: {0}", item.note)) + "</div>";
       polishClash(S, item).forEach((w) => (h += '<div class="why">' + esc(w) + "</div>"));
       [["Auto", "#cbd2e0"], ["Scheduled", "#9ca3af"], ["Ongoing", "#1240e0"], ["Done", "#16a34a"], ["No-Show", "#d92d20"]].forEach((x) => {
-        h += '<button data-st="' + x[0] + '"' + (cur === x[0] ? ' class="cur"' : "") + '><span class="dot" style="background:' + x[1] + '"></span>' + (x[0] === "Auto" ? "Auto (follows the clock)" : x[0]) + "</button>";
+        h += '<button data-st="' + x[0] + '"' + (cur === x[0] ? ' class="cur"' : "") + '><span class="dot" style="background:' + x[1] + '"></span>' + (x[0] === "Auto" ? tr("Auto (follows the clock)") : stName(x[0])) + "</button>";
       });
-      h += '<button data-mact="delpol">Remove this polishing slot</button>';
+      h += '<button data-mact="delpol">' + tr("Remove this polishing slot") + "</button>";
     }
     m.innerHTML = h;
     document.body.appendChild(m);
@@ -554,13 +585,17 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
     const data = typeof args.data === "string" ? JSON.parse(args.data) : args.data;
     if (msg.theme && msg.theme.base) document.body.classList.toggle("dark", msg.theme.base === "dark");
     if (!data) return;
-    if (D && D.day === data.day && (data.version === version || mine.has(data.version))) { if (!drag && !menuFor) render(); return; }
+    if (D && D.day === data.day && (data.version === version || mine.has(data.version))) {
+      D.lang = data.lang || "en"; D.names = data.names || {};
+      if (!drag && !menuFor) render();
+      return;
+    }
     const toSet = (arr) => { const o = {}; (arr || []).forEach((k) => (o[k] = true)); return o; };
     D = {
       day: data.day, tables: data.tables, tz: data.tz, date: data.date, rows: data.rows, sessions: data.sessions,
       ks: data.rows.filter((r) => r.kind === "slot").map((r) => r.k), slotByK: {}, startups: {}, hosts: {},
       polOk: toSet(data.polOk), polCap: data.polCap || 1, polOn: !!data.polOn, polPrior: data.polPrior || {}, notes: data.notes || [],
-      maxHeight: data.maxHeight || 900, names: data.names || {},
+      maxHeight: data.maxHeight || 900, names: data.names || {}, lang: data.lang || "en",
     };
     data.rows.forEach((r) => { if (r.kind === "slot") D.slotByK[r.k] = r; });
     data.startups.forEach((s) => (D.startups[s.name] = { avail: toSet(s.avail), priority: s.priority, presenter: s.presenter || "" }));

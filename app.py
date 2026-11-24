@@ -22,6 +22,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
+from i18n import COL_LABELS, LANGS, SUMMARY_KO, T, lang
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.cell.rich_text import CellRichText, TextBlock
@@ -51,7 +52,7 @@ STARTUP_COLS = ["Name", "Presenter", "Domain", "Days", "Available From", "Availa
 DEFAULT_NAMES = {"session": "Session", "time": "Time Slot", "table": "Table", "status": "Status",
                  "polish": "POLISHING SCHEDULE", "waiting": "WAITING LIST"}
 ABSENT_WORDS = ("none", "no", "absent", "not here", "not attending", "cancelled", "canceled",
-                "x", "dropped", "withdrawn")
+                "x", "dropped", "withdrawn", "불참", "미참석", "취소", "없음")
 HOST_COLS = ["Name", "Contact", "Type", "Days", "Available From", "Available Until",
              "Blocked Times", "Excluded Domains", "Max Meetings"]
 TIMEZONES = ["Asia/Singapore", "Asia/Seoul", "Asia/Tokyo", "Asia/Hong_Kong", "Asia/Shanghai",
@@ -151,7 +152,7 @@ def parse_days(v, labels: list[str]) -> frozenset[int]:
     """Blank/All -> every day. 'Not here'/'None' -> no day. Accepts 'Day 2', '2', '1,2' or a day label."""
     if isinstance(v, str) and norm(v) in ABSENT_WORDS:
         return frozenset()
-    if is_blank(v) or norm(v) in ("all", "any", "both", "every day"):
+    if is_blank(v) or norm(v) in ("all", "any", "both", "every day", "전체", "모두", "전일", "양일"):
         return frozenset(range(len(labels)))
     if norm(v) in ABSENT_WORDS:
         return frozenset()
@@ -164,7 +165,7 @@ def parse_days(v, labels: list[str]) -> frozenset[int]:
         if t in lab:
             out.add(lab[t])
             continue
-        m = re.fullmatch(r"(?:day\s*|d)?(\d+)", t)
+        m = re.fullmatch(r"(?:day\s*|d)?(\d+)(?:\s*일차|\s*일)?", t)
         if m and 1 <= int(m.group(1)) <= len(labels):
             out.add(int(m.group(1)) - 1)
             continue
@@ -1362,6 +1363,12 @@ ALIASES = {
     "contact": "Contact", "contact person": "Contact", "person": "Contact", "representative": "Contact",
     "attendee": "Contact",
     "excluded domains": "Excluded Domains", "excludes": "Excluded Domains", "exclude": "Excluded Domains",
+    "스타트업": "Name", "스타트업명": "Name", "회사": "Name", "회사명": "Name", "기업": "Name", "기업명": "Name",
+    "이름": "Name", "소속": "Name", "투자사": "Name", "발표자": "Presenter", "분야": "Domain", "섹터": "Domain",
+    "산업": "Domain", "참석일": "Days", "참석": "Days", "일자": "Days", "날짜": "Days", "담당자": "Contact",
+    "유형": "Type", "구분": "Type", "제외 분야": "Excluded Domains", "제외": "Excluded Domains",
+    "우선": "Priority", "우선순위": "Priority", "불가 시간": "Blocked Times", "가능 시작": "Available From",
+    "가능 종료": "Available Until", "최대 미팅": "Max Meetings", "피치 폴리싱": "Pitch Polishing",
 }
 
 
@@ -1458,7 +1465,8 @@ def parse_paste(raw: str):
 def guess_field(header: str, role: str, taken: set) -> str:
     cols = STARTUP_COLS if role == "startup" else HOST_COLS
     n = norm(header)
-    own = next((c for c in cols if norm(col_label(role, c)) == n), None)
+    own = next((c for c in cols if n in {norm(col_label(role, c)), norm(default_label(role, c, "en")),
+                                         norm(default_label(role, c, "ko"))}), None)
     if own and own not in taken:
         return own
     cand = ALIASES.get(n) if ALIASES.get(n) in cols else next((c for c in cols if c.lower() == n), None)
@@ -1470,13 +1478,14 @@ def guess_field(header: str, role: str, taken: set) -> str:
     return cand if cand and cand not in taken else "(ignore)"
 
 
-DEFAULT_COL_LABELS = {"startup": {c: c for c in STARTUP_COLS},
-                      "host": {**{c: c for c in HOST_COLS}, "Name": "Organisation"}}
+def default_label(role: str, col: str, lg: str | None = None) -> str:
+    L = COL_LABELS[lg or lang()]
+    return L["_host_name"] if role == "host" and col == "Name" else L[col]
 
 
 def col_label(role: str, col: str) -> str:
     """Heading shown in the participant tables. Renaming only changes the display, never the data."""
-    return (st.session_state.get(f"lbl_{role}_{col}") or "").strip() or DEFAULT_COL_LABELS[role][col]
+    return (st.session_state.get(f"lbl_{role}_{col}") or "").strip() or default_label(role, col)
 
 
 def labelled(role: str, config: dict) -> dict:
@@ -1487,10 +1496,10 @@ def labelled(role: str, config: dict) -> dict:
 
 def rename_popover(role: str, where):
     cols = STARTUP_COLS if role == "startup" else HOST_COLS
-    with where.popover("Rename columns"):
-        st.caption("Change the headings to the words your team uses. Only the display changes, the data stays.")
+    with where.popover(T("rename")):
+        st.caption(T("rename_cap"))
         for c in cols:
-            st.text_input(DEFAULT_COL_LABELS[role][c], key=f"lbl_{role}_{c}")
+            st.text_input(default_label(role, c), key=f"lbl_{role}_{c}", placeholder=default_label(role, c))
 
 
 def map_key(role: str, i: int, header: str) -> str:
@@ -1519,7 +1528,7 @@ def set_frames(days, startups, hosts, cfg: dict | None = None):
     labels_ = c.get("col_labels", {}) or {}
     for role_, cols_ in (("startup", STARTUP_COLS), ("host", HOST_COLS)):
         for c_ in cols_:
-            s[f"lbl_{role_}_{c_}"] = (labels_.get(role_, {}) or {}).get(c_) or DEFAULT_COL_LABELS[role_][c_]
+            s[f"lbl_{role_}_{c_}"] = (labels_.get(role_, {}) or {}).get(c_) or ""
     names = c.get("names", {}) or {}
     for k_ in DEFAULT_NAMES:
         s[f"nm_{k_}"] = names.get(k_) or DEFAULT_NAMES[k_]
@@ -1594,8 +1603,8 @@ def project_json() -> str:
                    "pol_on": bool(s.pol_on), "pol_days": list(s.pol_days),
                    "pol_start": s.t_pol_s.strftime("%H:%M"), "pol_end": s.t_pol_e.strftime("%H:%M"),
                    "pol_cap": int(s.pol_cap), "names": cfg.names,
-                   "col_labels": {role_: {c_: col_label(role_, c_) for c_ in cols_
-                                          if col_label(role_, c_) != DEFAULT_COL_LABELS[role_][c_]}
+                   "col_labels": {role_: {c_: s.get(f"lbl_{role_}_{c_}").strip() for c_ in cols_
+                                          if (s.get(f"lbl_{role_}_{c_}") or "").strip()}
                                   for role_, cols_ in (("startup", STARTUP_COLS), ("host", HOST_COLS))}},
         "days": cfg.days,
         "startups": s.s_df.to_dict("records"),
@@ -1626,17 +1635,17 @@ def cb_upload(role: str):
     try:
         df = read_upload(f)
     except Exception as e:  # noqa: BLE001
-        ss().flash = ("error", f"Could not read {f.name}: {e}")
+        ss().flash = ("error", T("f_read_fail", f=f.name, e=e))
         return
     ss()[f"paste_{role}"] = df.to_csv(sep="\t", index=False)
-    ss().flash = ("info", f"Loaded {f.name}. Check which column is which below, then press Import.")
+    ss().flash = ("info", T("f_loaded_file", f=f.name))
 
 
 def cb_paste(role: str):
     s = ss()
     df = parse_paste(s.get(f"paste_{role}", ""))
     if df is None:
-        s.flash = ("error", "Nothing to import. Paste cells including the header row.")
+        s.flash = ("error", T("f_nothing"))
         return
     out = pd.DataFrame(index=range(len(df)))
     for i, c in enumerate(df.columns):
@@ -1649,27 +1658,27 @@ def cb_paste(role: str):
         elif f != "(ignore)" and f not in out.columns:
             out[f] = col
     if "Name" not in out.columns:
-        s.flash = ("error", "Pick which column holds the startup or organisation name.")
+        s.flash = ("error", T("f_need_name"))
         return
     new = clean_frame(out, role)
     new = new[[not is_blank(v) for v in new["Name"]]].reset_index(drop=True)
     key_base, key_df = ("s_base", "s_df") if role == "startup" else ("h_base", "h_df")
-    if s.get(f"pmode_{role}", "Replace the list") == "Add to the list":
+    if s.get(f"pmode_{role}", "replace") == "add":
         old = s[key_df]
         names = {norm(v) for v in new["Name"]}
         new = pd.concat([old[[norm(v) not in names for v in old["Name"]]], new], ignore_index=True)
     s[key_base] = s[key_df] = new
     s.ver += 1
     s[f"paste_{role}"] = ""
-    s.flash = ("success", f"Imported {len(new)} {'startups' if role == 'startup' else 'hosts'}.")
+    s.flash = ("success", T("f_imported_s" if role == "startup" else "f_imported_h", n=len(new)))
 
 
 def paste_box(role: str):
     s = ss()
     raw = s.get(f"paste_{role}", "")
-    what = "startups" if role == "startup" else "hosts"
-    with st.expander(f"Paste {what} from Google Sheets or Excel (your own column names are fine)", expanded=bool(raw)):
-        st.text_area("Select the cells in your sheet including the header row, copy, and paste here",
+    what = T("what_s" if role == "startup" else "what_h")
+    with st.expander(T("paste_title", what=what), expanded=bool(raw)):
+        st.text_area(T("paste_label"),
                      key=f"paste_{role}", height=140,
                      placeholder="Startup\tPresenter\tSector\nFlexcuit\tMijin\tHardware")
         df = parse_paste(s.get(f"paste_{role}", ""))
@@ -1677,7 +1686,8 @@ def paste_box(role: str):
             return
         cols = STARTUP_COLS if role == "startup" else HOST_COLS
         opts = ["(ignore)"] + cols + ([SPLIT_HOST] if role == "host" else [])
-        st.caption(f"{len(df)} rows found. Tell the app what each of your columns means:")
+        st.caption(T("rows_found", n=len(df)))
+        show = {"(ignore)": T("ignore"), SPLIT_HOST: T("split_host"), **{c: col_label(role, c) for c in cols}}
         taken, grid = set(), st.columns(min(4, len(df.columns)))
         for i, c in enumerate(df.columns):
             k = map_key(role, i, c)
@@ -1689,11 +1699,12 @@ def paste_box(role: str):
                 s[k] = g
             taken.add(s[k])
             sample = ", ".join(str(v) for v in df[c].head(2) if not is_blank(v))[:40]
-            grid[i % len(grid)].selectbox(f"{c}", opts, key=k, help=f"e.g. {sample}" if sample else None)
+            grid[i % len(grid)].selectbox(f"{c}", opts, key=k, format_func=lambda o, show=show: show.get(o, o),
+                                          help=T("eg", x=sample) if sample else None)
         a, b = st.columns([2, 1])
-        a.radio("Import mode", ["Replace the list", "Add to the list"], horizontal=True, key=f"pmode_{role}",
-                label_visibility="collapsed")
-        b.button(f"Import {len(df)} rows", key=f"pbtn_{role}", type="primary", on_click=cb_paste, args=(role,))
+        a.radio("mode", ["replace", "add"], horizontal=True, key=f"pmode_{role}", label_visibility="collapsed",
+                format_func=lambda o: T("mode_" + o))
+        b.button(T("import_n", n=len(df)), key=f"pbtn_{role}", type="primary", on_click=cb_paste, args=(role,))
 
 
 def cb_project():
@@ -1722,9 +1733,9 @@ def cb_project():
             ss().result = None
         ss().statuses = data.get("statuses", {}) or {}
         ss().pol_notes = data.get("pol_notes", {}) or {}
-        ss().flash = ("success", f"Loaded project {f.name}")
+        ss().flash = ("success", T("f_loaded_project", f=f.name))
     except Exception as e:  # noqa: BLE001
-        ss().flash = ("error", f"Could not load project: {e}")
+        ss().flash = ("error", T("f_project_fail", e=e))
 
 
 # --------------------------------------------------------------------------------------
@@ -1758,7 +1769,7 @@ def board_payload(day, cfg, slots, startups, hosts, r) -> dict:
     rows = []
     for row in day_rows(day, cfg, slots, startups, hosts, []):
         if row["lunch"]:
-            rows.append({"kind": "lunch", "label": "Lunch break", "time": row["time"].replace("–", " – ")})
+            rows.append({"kind": "lunch", "label": T("lunch_row"), "time": row["time"].replace("–", " – ")})
         elif row.get("divider"):
             rows.append({"kind": "divider", "label": row["label"], "time": ""})
         elif row.get("tables") is not None:
@@ -1790,7 +1801,8 @@ def board_payload(day, cfg, slots, startups, hosts, r) -> dict:
         "polOk": [z.k for z in ds if cfg.polish_ok(z)], "polCap": max(1, cfg.pol_cap),
         "polPrior": dict(prior), "statuses": dict(ss().statuses),
         "notes": attendance_notes(cfg, startups), "maxHeight": 880,
-        "names": {k_: cfg.nm(k_) for k_ in DEFAULT_NAMES},
+        "names": {k_: (cfg.names or {}).get(k_) or T(f"nm_{k_}") for k_ in DEFAULT_NAMES},
+        "lang": lang(),
     }
 
 
@@ -1820,126 +1832,136 @@ def apply_board(r, cfg, slots, startups, hosts, day, val) -> bool:
     return True
 
 
+I18N_KEYS = set(__import__("i18n").S)
+
+
+def ko_headers(df: pd.DataFrame) -> pd.DataFrame:
+    if lang() != "ko":
+        return df
+    def h(c):
+        if c in SUMMARY_KO:
+            return SUMMARY_KO[c]
+        if c.endswith(" Partners"):
+            return c[:-9] + " 파트너"
+        return c
+    return df.rename(columns=h)
+
+
+def cb_lang():
+    st.query_params["lang"] = ss().lang
+
+
 def setup_tab():
     s = ss()
-    st.subheader("Event")
+    st.subheader(T("event"))
     c1, c2, c3 = st.columns([1.2, 1, 1])
     with c1:
-        st.text_input("Event name", key="ev_name")
+        st.text_input(T("event_name"), key="ev_name")
         s.days_df = st.data_editor(
             s.days_base, key=f"days_{s.ver}", num_rows="dynamic", hide_index=True,
-            column_config={"Label": st.column_config.TextColumn("Day", required=True),
-                           "Date": st.column_config.DateColumn("Date", format="ddd D MMM YYYY",
-                                                               help="Used for live status")})
+            column_config={"Label": st.column_config.TextColumn(T("col_day"), required=True),
+                           "Date": st.column_config.DateColumn(T("col_date"), format="ddd D MMM YYYY",
+                                                               help=T("date_help"))})
     with c2:
         a, b = st.columns(2)
-        a.time_input("Day starts", key="t_start", step=timedelta(minutes=5))
-        b.time_input("Day ends", key="t_end", step=timedelta(minutes=5))
-        a.number_input("Meeting length (min)", 5, 180, step=1, key="interval")
+        a.time_input(T("day_starts"), key="t_start", step=timedelta(minutes=5))
+        b.time_input(T("day_ends"), key="t_end", step=timedelta(minutes=5))
+        a.number_input(T("meeting_len"), 5, 180, step=1, key="interval")
         g1, g2 = b.columns(2)
-        g1.number_input("Gap (min)", 0, 60, step=1, key="buffer_m", help="Break between two meetings")
-        g2.number_input("+ sec", 0, 50, step=10, key="buffer_s")
-        st.number_input("Tables (concurrent meetings)", 1, 200, step=1, key="tables")
+        g1.number_input(T("gap_min"), 0, 60, step=1, key="buffer_m", help=T("gap_help"))
+        g2.number_input(T("gap_sec"), 0, 50, step=10, key="buffer_s")
+        st.number_input(T("tables"), 1, 200, step=1, key="tables")
     with c3:
-        st.checkbox("Lunch break", key="lunch_on")
+        st.checkbox(T("lunch"), key="lunch_on")
         a, b = st.columns(2)
-        a.time_input("Lunch from", key="t_lunch_s", step=timedelta(minutes=5), disabled=not s.lunch_on)
-        b.time_input("Lunch until", key="t_lunch_e", step=timedelta(minutes=5), disabled=not s.lunch_on)
-        st.selectbox("Time zone", TIMEZONES, key="tz", help="Drives the live Ongoing and Done status")
+        a.time_input(T("lunch_from"), key="t_lunch_s", step=timedelta(minutes=5), disabled=not s.lunch_on)
+        b.time_input(T("lunch_until"), key="t_lunch_e", step=timedelta(minutes=5), disabled=not s.lunch_on)
+        st.selectbox(T("tz"), TIMEZONES, key="tz", help=T("tz_help"))
 
     cfg = current_cfg()
     slots = build_slots(cfg)
     per_day = len(slots) // max(1, len(cfg.days))
     if slots:
         times = " ".join(fmt(x.start) for x in slots if x.day == 0)
-        st.caption(f"{per_day} slots per day × {len(cfg.days)} day(s) = {len(slots)} slots. Day 1 starts at {times}")
+        st.caption(T("slots_caption", per=per_day, days=len(cfg.days), n=len(slots), times=times))
     else:
-        st.warning("No meeting slot fits. Check the day start, end and meeting length.")
+        st.warning(T("no_slot"))
 
-    st.subheader("Sessions and pitch polishing")
+    st.subheader(T("sess_pol"))
     c1, c2 = st.columns([1, 1.4])
     with c1:
-        st.text_input("Sessions", key="sessions_txt",
-                      help="Groups the timeline like your sheet. Leave blank for before and after lunch")
+        st.text_input(T("sessions"), key="sessions_txt", help=T("sessions_help"))
         if s.get("sess_err"):
             st.error(s.sess_err)
         else:
             st.caption(" · ".join(f"{x['name']} {fmt(x['start'])}–{fmt(x['end'])}" for x in cfg.session_list()))
     with c2:
-        st.checkbox("Run pitch polishing alongside the meetings", key="pol_on",
-                    help="Each startup gets one polishing slot per selected day and has no meeting in that slot")
+        st.checkbox(T("pol_on"), key="pol_on", help=T("pol_help"))
         s.pol_days = [x for x in s.get("pol_days", []) if x in cfg.labels]
         a, b, c, d = st.columns([1.4, 1, 1, 0.8])
-        a.multiselect("Days", cfg.labels, key="pol_days", disabled=not s.pol_on)
-        b.time_input("From", key="t_pol_s", step=timedelta(minutes=5), disabled=not s.pol_on)
-        c.time_input("Until", key="t_pol_e", step=timedelta(minutes=5), disabled=not s.pol_on)
-        d.number_input("Coaches", 1, 20, key="pol_cap", disabled=not s.pol_on,
-                       help="How many startups can be polished at the same time")
+        a.multiselect(T("pol_days"), cfg.labels, key="pol_days", disabled=not s.pol_on)
+        b.time_input(T("from"), key="t_pol_s", step=timedelta(minutes=5), disabled=not s.pol_on)
+        c.time_input(T("until"), key="t_pol_e", step=timedelta(minutes=5), disabled=not s.pol_on)
+        d.number_input(T("coaches"), 1, 20, key="pol_cap", disabled=not s.pol_on, help=T("coaches_help"))
 
-    with st.expander("Column names in the schedule"):
-        st.caption("Rename the headings used on the board and in the Excel file, e.g. Table → Booth")
+    with st.expander(T("colnames")):
+        st.caption(T("colnames_cap"))
         cols_ = st.columns(len(DEFAULT_NAMES))
-        for c_, (k_, v_) in zip(cols_, DEFAULT_NAMES.items()):
-            c_.text_input(v_.title() if v_.isupper() else v_, key=f"nm_{k_}")
+        for c_, k_ in zip(cols_, DEFAULT_NAMES):
+            c_.text_input(T(f"nm_{k_}"), key=f"nm_{k_}")
 
     st.divider()
-    st.subheader("Startups")
+    st.subheader(T("startups"))
     u1, u2, u3 = st.columns([3, 1, 1])
     rename_popover("startup", u3)
-    u1.file_uploader("Import startups (CSV or Excel)", type=["csv", "xlsx", "xls"], key="up_startup",
+    u1.file_uploader(T("import_file"), type=["csv", "xlsx", "xls"], key="up_startup",
                      on_change=cb_upload, args=("startup",), label_visibility="collapsed")
-    u2.download_button("Startup template", sample_frames()[1].to_csv(index=False).encode("utf-8-sig"),
+    u2.download_button(T("template_s"), sample_frames()[1].to_csv(index=False).encode("utf-8-sig"),
                        "startups_template.csv", "text/csv")
     paste_box("startup")
     s.s_df = st.data_editor(
         s.s_base, key=f"s_{s.ver}", num_rows="dynamic", hide_index=True,
         column_config=labelled("startup", {
             "Name": st.column_config.TextColumn(required=True, width="medium"),
-            "Domain": st.column_config.TextColumn(help="One or more, comma separated. Hosts can exclude domains"),
-            "Days": st.column_config.TextColumn(
-                help="Blank = all days. Day 2 or 1,2 for some days. Not here = not attending"),
-            "Available From": st.column_config.TextColumn(help="HH:MM. Blank = day start", validate=TIME_VALID),
-            "Available Until": st.column_config.TextColumn(
-                help="HH:MM cutoff. No meeting may end after this", validate=TIME_VALID),
-            "Blocked Times": st.column_config.TextColumn(
-                help="Restricted windows, e.g. Day 1 14:00-15:00; 16:20-16:40", width="medium"),
-            "Priority": st.column_config.CheckboxColumn(help="Gets more meetings when slots are scarce"),
-            "Presenter": st.column_config.TextColumn(help="Who pitches, e.g. Jay & Serena"),
-            "Pitch Polishing": st.column_config.CheckboxColumn(default=True,
-                                                               help="Gets a pitch polishing slot each polishing day"),
-            "Max Meetings": st.column_config.NumberColumn(min_value=0, step=1, format="%d",
-                                                          help="Blank = no limit"),
+            "Domain": st.column_config.TextColumn(help=T("h_domain")),
+            "Days": st.column_config.TextColumn(help=T("h_days_s")),
+            "Available From": st.column_config.TextColumn(help=T("h_from"), validate=TIME_VALID),
+            "Available Until": st.column_config.TextColumn(help=T("h_until"), validate=TIME_VALID),
+            "Blocked Times": st.column_config.TextColumn(help=T("h_blocked"), width="medium"),
+            "Priority": st.column_config.CheckboxColumn(help=T("h_priority")),
+            "Presenter": st.column_config.TextColumn(help=T("h_presenter")),
+            "Pitch Polishing": st.column_config.CheckboxColumn(default=True, help=T("h_polish")),
+            "Max Meetings": st.column_config.NumberColumn(min_value=0, step=1, format="%d", help=T("h_max")),
         }))
 
-    st.subheader("Hosts (investors, corporates, agencies)")
+    st.subheader(T("hosts"))
     u1, u2, u3 = st.columns([3, 1, 1])
     rename_popover("host", u3)
-    u1.file_uploader("Import hosts (CSV or Excel)", type=["csv", "xlsx", "xls"], key="up_host",
+    u1.file_uploader(T("import_file"), type=["csv", "xlsx", "xls"], key="up_host",
                      on_change=cb_upload, args=("host",), label_visibility="collapsed")
-    u2.download_button("Host template", sample_frames()[2].to_csv(index=False).encode("utf-8-sig"),
+    u2.download_button(T("template_h"), sample_frames()[2].to_csv(index=False).encode("utf-8-sig"),
                        "hosts_template.csv", "text/csv")
     paste_box("host")
     s.h_df = st.data_editor(
         s.h_base, key=f"h_{s.ver}", num_rows="dynamic", hide_index=True,
         column_config=labelled("host", {
             "Name": st.column_config.TextColumn(required=True, width="medium"),
-            "Contact": st.column_config.TextColumn(help="Person attending, e.g. Raymond"),
+            "Contact": st.column_config.TextColumn(help=T("h_contact")),
             "Type": st.column_config.SelectboxColumn(options=HOST_TYPES, default="Investor"),
-            "Days": st.column_config.TextColumn(help="Blank = all days. Day 1 for one day. Not here = not attending"),
-            "Available From": st.column_config.TextColumn(help="HH:MM", validate=TIME_VALID),
-            "Available Until": st.column_config.TextColumn(help="HH:MM", validate=TIME_VALID),
-            "Blocked Times": st.column_config.TextColumn(help="e.g. Day 2 10:00-11:00", width="medium"),
-            "Excluded Domains": st.column_config.TextColumn(
-                help="Never matched with startups in these domains, e.g. K-Beauty, Hardware", width="medium"),
+            "Days": st.column_config.TextColumn(help=T("h_days_h")),
+            "Available From": st.column_config.TextColumn(help=T("h_from"), validate=TIME_VALID),
+            "Available Until": st.column_config.TextColumn(help=T("h_until"), validate=TIME_VALID),
+            "Blocked Times": st.column_config.TextColumn(help=T("h_blocked"), width="medium"),
+            "Excluded Domains": st.column_config.TextColumn(help=T("h_excluded"), width="medium"),
             "Max Meetings": st.column_config.NumberColumn(min_value=0, step=1, format="%d"),
         }))
 
     st.divider()
     a, b, c, d = st.columns(4)
-    a.button("Load sample event", on_click=cb_sample)
-    b.button("Start blank", on_click=cb_blank)
-    c.download_button("Save project (.json)", project_json(), "bizmatch_project.json", "application/json")
-    d.file_uploader("Open project", type=["json"], key="up_project", on_change=cb_project,
+    a.button(T("load_sample"), on_click=cb_sample)
+    b.button(T("start_blank"), on_click=cb_blank)
+    c.download_button(T("save_project"), project_json(), "bizmatch_project.json", "application/json")
+    d.file_uploader(T("open_project"), type=["json"], key="up_project", on_change=cb_project,
                     label_visibility="collapsed")
 
 
@@ -1951,49 +1973,42 @@ def generate_tab():
     hosts, e2 = parse_parties(s.h_df, "host", cfg.labels)
     errors = e1 + e2
     if errors:
-        st.error("Fix these before generating:\n\n" + "\n".join(f"- {e}" for e in errors))
+        st.error(T("fix_errors") + "\n\n" + "\n".join(f"- {e}" for e in errors))
 
     attending = [x for x in startups if not x.absent]
     pairs = sum(compatible(a, b) for a in attending for b in hosts if not b.absent)
     peak = max((sum(h.available(x) for h in hosts) for x in slots), default=0)
     c = st.columns(5)
-    c[0].metric("Startups attending", len(attending),
-                f"{len(startups) - len(attending)} not here" if len(startups) > len(attending) else None,
+    c[0].metric(T("m_attending"), len(attending),
+                T("not_here", n=len(startups) - len(attending)) if len(startups) > len(attending) else None,
                 delta_color="off")
-    c[1].metric("Hosts", len(hosts))
-    c[2].metric("Slots", len(slots))
-    c[3].metric("Eligible pairs", pairs)
-    c[4].metric("Polishing days", len(cfg.pol_days) if cfg.pol_days else "Off")
+    c[1].metric(T("m_hosts"), len(hosts))
+    c[2].metric(T("m_slots"), len(slots))
+    c[3].metric(T("m_pairs"), pairs)
+    c[4].metric(T("m_poldays"), len(cfg.pol_days) if cfg.pol_days else T("off"))
 
-    st.subheader("Rules")
+    st.subheader(T("rules"))
     default = "front" if peak <= cfg.tables else "block"
     if s.get("packing_mode") not in PACKING:
         s.packing_mode = default
     a, b = st.columns([1.3, 1])
     with a:
-        st.radio("Host slot packing", list(PACKING), format_func=PACKING.get, key="packing_mode")
+        st.radio(T("packing"), list(PACKING), format_func=lambda k: T("pack_" + k), key="packing_mode")
         if s.packing_mode == "front" and peak > cfg.tables:
-            st.warning(f"Up to {peak} hosts are available at the same time but there are only {cfg.tables} "
-                       "tables, so they cannot all start at their first slot. Front-packed will leave some "
-                       "hosts empty. Use Contiguous block instead.")
+            st.warning(T("warn_front", peak=peak, tables=cfg.tables))
     with b:
-        st.slider("Priority weight", 1, 5, 3, key="pw",
-                  help="How strongly priority startups are favoured when slots are scarce")
-        st.slider("Solver time limit (seconds)", 5, 120, 20, key="tl")
-        st.checkbox("Spread meetings fairly across hosts too", True, key="hf")
-        st.checkbox("Prefer earlier slots", True, key="pe")
+        st.slider(T("pw"), 1, 5, 3, key="pw", help=T("pw_help"))
+        st.slider(T("tl"), 5, 120, 20, key="tl")
+        st.checkbox(T("hf"), True, key="hf")
+        st.checkbox(T("pe"), True, key="pe")
 
     keep_live = False
     if s.result and s.result.get("meetings"):
         has_pins = any(m.get("lock") for m in s.result["meetings"])
-        keep_live = st.checkbox(
-            "Keep pinned meetings (moved by hand) and anything already Ongoing, Done or No-Show, "
-            "and reschedule the rest", value=has_pins, key="keep_live")
+        keep_live = st.checkbox(T("keep_live"), value=has_pins, key="keep_live")
 
-    st.caption("Always enforced: each startup and host meet at most once, nobody is double booked, "
-               "tables are never over capacity, availability, cutoffs, blocked times and domain "
-               "exclusions are respected.")
-    go = st.button("Generate schedule", type="primary",
+    st.caption(T("always"))
+    go = st.button(T("generate"), type="primary",
                    disabled=bool(errors) or not startups or not hosts or not slots)
     if go:
         fixed, fixed_pol = [], []
@@ -2011,7 +2026,7 @@ def generate_tab():
                     fixed_pol.append((p_.startup, p_.day, p_.start))
         settings = SolverSettings(packing=s.packing_mode, time_limit=s.tl, priority_weight=s.pw,
                                   host_fairness=s.hf, prefer_early=s.pe)
-        with st.spinner("Optimising with OR-Tools CP-SAT…"):
+        with st.spinner(T("spinner")):
             res = solve_schedule(cfg, slots, startups, hosts, settings, fixed, fixed_pol)
         if res.meetings:
             pinned = {(f[0], f[1]) for f in fixed if any(md.get("lock") and md["startup"] == f[0] and
@@ -2028,26 +2043,26 @@ def generate_tab():
                 "dropped": res.dropped_fixed, "hash": frames_hash(cfg, s.s_df, s.h_df),
                 "issues": validate(cfg, slots, startups, hosts, res.meetings, s.packing_mode, res.polish),
             }
-            pol_txt = f" and {len(res.polish)} pitch polishing sessions" if res.polish else ""
-            st.success(f"{res.message} {len(res.meetings)} meetings{pol_txt} in {res.wall:.1f}s. "
-                       "Open the Results tab.")
+            pol_txt = T("gen_pol", n=len(res.polish)) if res.polish else ""
+            st.success(T("gen_success", msg=T("solve_" + res.status), n=len(res.meetings), pol=pol_txt,
+                         sec=f"{res.wall:.1f}"))
             if res.dropped_fixed:
-                st.warning("These kept meetings no longer fit the setup and were dropped: "
-                           + "; ".join(res.dropped_fixed))
+                st.warning(T("dropped") + "; ".join(res.dropped_fixed))
         else:
-            st.error(f"{res.status}: {res.message}")
+            st.error(f"{res.status}: " + (T("solve_" + res.status) if "solve_" + res.status in I18N_KEYS
+                                          else res.message))
 
     if s.result:
         r = s.result
-        st.caption(f"Last run: {r['status']} · {len(r['meetings'])} meetings · "
-                   f"{r.get('wall', 0):.1f}s · {r.get('n_vars', 0):,} decision variables")
+        st.caption(T("last_run", st=r["status"], n=len(r["meetings"]), sec=f"{r.get('wall', 0):.1f}",
+                     v=f"{r.get('n_vars', 0):,}"))
 
 
 def results_tab():
     s = ss()
     r = s.result
     if not r or not r.get("meetings"):
-        st.info("Generate a schedule first.")
+        st.info(T("gen_first"))
         return
     cfg = EventConfig(**r["cfg"])
     slots = build_slots(cfg)
@@ -2055,7 +2070,7 @@ def results_tab():
     hosts, _ = parse_parties(r["h_df"], "host", cfg.labels)
     now = now_for(cfg)
 
-    day = st.radio("Day", list(range(len(cfg.days))), format_func=cfg.day_title, horizontal=True, key="day_sel")
+    day = st.radio(T("day"), list(range(len(cfg.days))), format_func=cfg.day_title, horizontal=True, key="day_sel")
     key = f"board_{r['id']}_{day}"
     apply_board(r, cfg, slots, startups, hosts, day, s.get(key))
 
@@ -2064,7 +2079,7 @@ def results_tab():
     parked = r.get("parked", [])
 
     if r.get("hash") and r["hash"] != frames_hash(current_cfg(), s.s_df, s.h_df):
-        st.warning("Setup changed since this schedule was generated. Generate again to apply the changes.")
+        st.warning(T("setup_changed"))
     issues = r.get("issues", [])
     hard = [i for i in issues if not i.startswith("Gap in")]
     soft = [i for i in issues if i.startswith("Gap in")]
@@ -2074,36 +2089,33 @@ def results_tab():
         counts[m.startup] += 1
     att = [x for x in startups if not x.absent]
     c = st.columns(5)
-    c[0].metric("Meetings", len(meetings), f"{len(parked)} unplaced" if parked else None, delta_color="inverse")
-    c[1].metric("Startups with meetings", f"{sum(1 for x in att if counts[x.name])}/{len(att)}")
-    c[2].metric("Avg per startup", f"{len(meetings) / max(1, len(att)):.1f}")
-    c[3].metric("Pitch polishing", len(polish) if polish else "Off")
-    c[4].metric("Clashes", len(hard))
+    c[0].metric(T("m_meetings"), len(meetings), T("unplaced", n=len(parked)) if parked else None,
+                delta_color="inverse")
+    c[1].metric(T("m_with"), f"{sum(1 for x in att if counts[x.name])}/{len(att)}")
+    c[2].metric(T("m_avg"), f"{len(meetings) / max(1, len(att)):.1f}")
+    c[3].metric(T("m_pol"), len(polish) if polish else T("off"))
+    c[4].metric(T("m_clash"), len(hard))
 
-    st.caption("Drag a meeting onto another table or time. Green fits, amber pushes the meetings in the way to "
-               "the nearest free time, red is a clash. Click a meeting to set its status, pin it or unschedule it. "
-               "Ctrl+Z undoes.")
+    st.caption(T("board_cap"))
     BOARD(data=board_payload(day, cfg, slots, startups, hosts, r), key=key, default=None)
 
     if hard:
-        with st.expander(f"{len(hard)} clash{'es' if len(hard) > 1 else ''} to resolve", expanded=False):
+        with st.expander(T("clashes_exp", n=len(hard)), expanded=False):
             st.markdown("\n".join(f"- {i}" for i in hard[:40]))
     elif not parked:
-        st.success("Verified: no duplicate pairs, no double booking, table capacity, availability, cutoffs, "
-                   "blocked times, domain exclusions" + (", pitch polishing" if polish else ""))
+        st.success(T("verified") + (T("verified_pol") if polish else ""))
     if soft:
-        st.caption(f"Note: {len(soft)} host schedule(s) now have a gap after manual moves.")
+        st.caption(T("gaps_note", n=len(soft)))
 
     day_pol = sorted([p for p in polish if p.day == day], key=lambda p: (p.k, p.startup))
     if day_pol or day in cfg.pol_days:
-        st.subheader("Pitching practice")
-        st.caption("The same sessions as the Pitch polishing column on the board. Drag them on the board to change "
-                   "the time. Status and Focus / Mentor Note edited here show on the board and in the Excel file.")
+        st.subheader(T("practice"))
+        st.caption(T("practice_cap"))
         P_ = {x.name: x for x in startups}
         pdf = pd.DataFrame([{
             "Time": f"{fmt(p.start)}–{fmt(p.end)}", "Startup": p.startup,
             "Presenter": P_[p.startup].presenter if p.startup in P_ else "",
-            "Round": {1: "1st", 2: "2nd"}.get(p.n, f"{p.n}th"),
+            "Round": T("round_1") if p.n == 1 else T("round_2") if p.n == 2 else T("round_n", n=p.n),
             "Status": s.statuses.get(p.pid, "Auto"),
             "Focus / Mentor Note": s.pol_notes.get(p.pid, ""),
         } for p in day_pol], columns=["Time", "Startup", "Presenter", "Round", "Status", "Focus / Mentor Note"])
@@ -2111,37 +2123,48 @@ def results_tab():
         st.data_editor(pdf, key=pkey, hide_index=True, disabled=["Time", "Startup", "Presenter", "Round"],
                        on_change=cb_practice_edit, args=(pkey, [p.pid for p in day_pol]),
                        column_config={
-                           "Status": st.column_config.SelectboxColumn(options=STATUS_CHOICES, required=True,
-                                                                      help="Auto follows the clock"),
-                           "Presenter": st.column_config.TextColumn(help="Edit presenters in tab 1"),
-                           "Focus / Mentor Note": st.column_config.TextColumn(width="large")})
+                           "Time": st.column_config.TextColumn(T("pc_time")),
+                           "Startup": st.column_config.TextColumn(T("pc_startup")),
+                           "Round": st.column_config.TextColumn(T("pc_round")),
+                           "Status": st.column_config.SelectboxColumn(T("pc_status"), options=STATUS_CHOICES,
+                                                                      required=True, help=T("auto_help")),
+                           "Presenter": st.column_config.TextColumn(T("pc_presenter"), help=T("presenter_help")),
+                           "Focus / Mentor Note": st.column_config.TextColumn(T("pc_note"), width="large")})
 
-    st.subheader("Startup summary")
-    st.dataframe(startup_summary(cfg, startups, hosts, meetings, s.statuses, now, polish=polish), hide_index=True)
-    with st.expander("Host summary"):
-        st.dataframe(host_summary(cfg, hosts, meetings), hide_index=True)
+    st.subheader(T("summary_s"))
+    st.dataframe(ko_headers(startup_summary(cfg, startups, hosts, meetings, s.statuses, now, polish=polish)),
+                 hide_index=True)
+    with st.expander(T("summary_h")):
+        st.dataframe(ko_headers(host_summary(cfg, hosts, meetings)), hide_index=True)
 
     stamp = now.strftime("%Y%m%d_%H%M")
     a, b = st.columns(2)
-    a.download_button("Download Excel (.xlsx)",
+    a.download_button(T("dl_excel"),
                       build_excel(cfg, slots, startups, hosts, meetings, s.statuses, now, polish,
                                   s.get("pol_notes", {})),
                       f"matching_schedule_{stamp}.xlsx",
                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary")
-    b.download_button("Download meetings (.csv)",
+    b.download_button(T("dl_csv"),
                       meetings_table(cfg, meetings, s.statuses, now, hosts).to_csv(index=False).encode("utf-8-sig"),
                       f"meetings_{stamp}.csv", "text/csv")
+    if lang() == "ko":
+        st.caption(T("excel_lang"))
 
 
 def main():
     st.set_page_config(page_title=APP_TITLE, page_icon="🗓️", layout="wide")
+    if "lang" not in ss():
+        q = st.query_params.get("lang", "en")
+        ss().lang = q if q in LANGS else "en"
     init_state()
-    st.title(APP_TITLE)
-    st.caption("1:1 business matching schedules, optimised with Google OR-Tools CP-SAT")
+    h1, h2 = st.columns([5, 1.3], vertical_alignment="bottom")
+    h1.title(APP_TITLE)
+    h2.radio(T("language"), list(LANGS), format_func=LANGS.get, key="lang", horizontal=True, on_change=cb_lang)
+    st.caption(T("app_caption"))
     flash = ss().pop("flash", None)
     if flash:
         getattr(st, flash[0])(flash[1])
-    t1, t2, t3 = st.tabs(["1. Event & Participants", "2. Generate", "3. Results & Live Board"])
+    t1, t2, t3 = st.tabs([T("tab1"), T("tab2"), T("tab3")])
     with t1:
         setup_tab()
     with t2:

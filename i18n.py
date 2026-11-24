@@ -1,0 +1,232 @@
+"""UI text in English and Korean. Data values (statuses, host types, day labels) are not translated."""
+import streamlit as st
+
+LANGS = {"en": "English", "ko": "한국어"}
+
+S = {
+    # app
+    "app_caption": ("1:1 business matching schedules, optimised with Google OR-Tools CP-SAT",
+                    "Google OR-Tools CP-SAT로 최적화하는 1:1 비즈니스 매칭 스케줄러"),
+    "tab1": ("1. Event & Participants", "1. 행사 & 참가자"),
+    "tab2": ("2. Generate", "2. 일정 생성"),
+    "tab3": ("3. Results & Live Board", "3. 결과 & 라이브 보드"),
+    "language": ("Language", "언어"),
+    # setup
+    "event": ("Event", "행사"),
+    "event_name": ("Event name", "행사 이름"),
+    "col_day": ("Day", "일차"),
+    "col_date": ("Date", "날짜"),
+    "date_help": ("Used for live status", "실시간 상태 표시에 쓰여요"),
+    "day_starts": ("Day starts", "시작 시간"),
+    "day_ends": ("Day ends", "종료 시간"),
+    "meeting_len": ("Meeting length (min)", "미팅 길이 (분)"),
+    "gap_min": ("Gap (min)", "간격 (분)"),
+    "gap_help": ("Break between two meetings", "미팅과 미팅 사이 쉬는 시간"),
+    "gap_sec": ("+ sec", "+ 초"),
+    "tables": ("Tables (concurrent meetings)", "테이블 수 (동시 미팅)"),
+    "lunch": ("Lunch break", "점심시간"),
+    "lunch_from": ("Lunch from", "점심 시작"),
+    "lunch_until": ("Lunch until", "점심 끝"),
+    "tz": ("Time zone", "시간대"),
+    "tz_help": ("Drives the live Ongoing and Done status", "진행 중·완료 상태를 이 시간대 기준으로 표시해요"),
+    "slots_caption": ("{per} slots per day × {days} day(s) = {n} slots. Day 1 starts at {times}",
+                      "하루 {per}개 슬롯 × {days}일 = 총 {n}개. 1일차 시작 시간 {times}"),
+    "no_slot": ("No meeting slot fits. Check the day start, end and meeting length.",
+                "들어갈 수 있는 미팅 슬롯이 없어요. 시작·종료 시간과 미팅 길이를 확인해 주세요."),
+    "sess_pol": ("Sessions and pitch polishing", "세션 & 피치 폴리싱"),
+    "sessions": ("Sessions", "세션"),
+    "sessions_help": ("Groups the timeline like your sheet. Leave blank for before and after lunch",
+                      "시간표를 세션으로 묶어요. 비워두면 점심 전·후로 나눠요"),
+    "pol_on": ("Run pitch polishing alongside the meetings", "미팅과 함께 피치 폴리싱 진행"),
+    "pol_help": ("Each startup gets one polishing slot per selected day and has no meeting in that slot",
+                 "선택한 날마다 스타트업별로 폴리싱 1회를 배정하고, 그 시간엔 미팅을 잡지 않아요"),
+    "pol_days": ("Days", "진행일"),
+    "from": ("From", "시작"),
+    "until": ("Until", "종료"),
+    "coaches": ("Coaches", "코치 수"),
+    "coaches_help": ("How many startups can be polished at the same time", "동시에 폴리싱할 수 있는 스타트업 수"),
+    "colnames": ("Column names in the schedule", "일정표 칸 이름"),
+    "colnames_cap": ("Rename the headings used on the board and in the Excel file, e.g. Table → Booth",
+                     "보드와 엑셀에 나오는 칸 이름을 바꿀 수 있어요. 예: Table → Booth"),
+    "nm_session": ("Session", "세션"),
+    "nm_time": ("Time Slot", "시간"),
+    "nm_table": ("Table", "테이블"),
+    "nm_status": ("Status", "상태"),
+    "nm_polish": ("Polishing schedule", "폴리싱 일정"),
+    "nm_waiting": ("Waiting list", "대기 명단"),
+    "startups": ("Startups", "스타트업"),
+    "hosts": ("Hosts (investors, corporates, agencies)", "호스트 (투자자·기업·기관)"),
+    "import_file": ("Import a CSV or Excel file", "CSV·엑셀 파일 가져오기"),
+    "template_s": ("Startup template", "스타트업 템플릿"),
+    "template_h": ("Host template", "호스트 템플릿"),
+    "rename": ("Rename columns", "칸 이름 바꾸기"),
+    "rename_cap": ("Change the headings to the words your team uses. Only the display changes, the data stays.",
+                   "팀에서 쓰는 이름으로 바꿔보세요. 보이는 이름만 바뀌고 데이터는 그대로예요."),
+    "load_sample": ("Load sample event", "샘플 행사 불러오기"),
+    "start_blank": ("Start blank", "새로 시작"),
+    "save_project": ("Save project (.json)", "프로젝트 저장 (.json)"),
+    "open_project": ("Open project", "프로젝트 열기"),
+    # participant column helps
+    "h_domain": ("One or more, comma separated. Hosts can exclude domains", "여러 개면 쉼표로 구분. 호스트가 특정 분야를 제외할 수 있어요"),
+    "h_days_s": ("Blank = all days. Day 2 or 1,2 for some days. Not here = not attending",
+                 "비우면 모든 날 참석. 특정 날만 오면 Day 2 또는 1,2. 불참이면 Not here 또는 불참"),
+    "h_days_h": ("Blank = all days. Day 1 for one day. Not here = not attending",
+                 "비우면 모든 날 참석. 하루만 오면 Day 1. 불참이면 Not here 또는 불참"),
+    "h_from": ("HH:MM. Blank = day start", "HH:MM 형식. 비우면 행사 시작부터"),
+    "h_until": ("HH:MM cutoff. No meeting may end after this", "HH:MM 형식. 이 시간 이후로는 미팅이 없어요"),
+    "h_blocked": ("Restricted windows, e.g. Day 1 14:00-15:00; 16:20-16:40", "안 되는 시간. 예: Day 1 14:00-15:00; 16:20-16:40"),
+    "h_priority": ("Gets more meetings when slots are scarce", "슬롯이 부족할 때 미팅을 더 받아요"),
+    "h_presenter": ("Who pitches, e.g. Jay & Serena", "발표하는 사람. 예: Jay & Serena"),
+    "h_polish": ("Gets a pitch polishing slot each polishing day", "폴리싱 진행일마다 폴리싱 1회를 받아요"),
+    "h_max": ("Blank = no limit", "비우면 제한 없음"),
+    "h_contact": ("Person attending, e.g. Raymond", "참석하는 담당자. 예: Raymond"),
+    "h_excluded": ("Never matched with startups in these domains, e.g. K-Beauty, Hardware",
+                   "이 분야 스타트업과는 매칭하지 않아요. 예: K-Beauty, Hardware"),
+    # paste
+    "what_s": ("startups", "스타트업"),
+    "what_h": ("hosts", "호스트"),
+    "paste_title": ("Paste {what} from Google Sheets or Excel (your own column names are fine)",
+                    "구글 시트·엑셀에서 {what} 붙여넣기 (칸 이름은 그대로 둬도 돼요)"),
+    "paste_label": ("Select the cells in your sheet including the header row, copy, and paste here",
+                    "시트에서 헤더 줄까지 선택해서 복사한 뒤 여기에 붙여넣으세요"),
+    "rows_found": ("{n} rows found. Tell the app what each of your columns means:",
+                   "{n}개 행을 찾았어요. 각 칸이 무엇인지 확인해 주세요"),
+    "ignore": ("(ignore)", "(사용 안 함)"),
+    "split_host": ("Contact - Organisation (split)", "담당자 - 소속 (나눠서 저장)"),
+    "mode_replace": ("Replace the list", "목록 바꾸기"),
+    "mode_add": ("Add to the list", "목록에 추가"),
+    "import_n": ("Import {n} rows", "{n}개 가져오기"),
+    "eg": ("e.g. {x}", "예: {x}"),
+    "f_loaded_file": ("Loaded {f}. Check which column is which below, then press Import.",
+                      "{f} 파일을 불러왔어요. 아래에서 칸을 확인하고 가져오기를 눌러주세요."),
+    "f_read_fail": ("Could not read {f}: {e}", "{f} 파일을 읽지 못했어요: {e}"),
+    "f_nothing": ("Nothing to import. Paste cells including the header row.", "가져올 내용이 없어요. 헤더 줄까지 포함해서 붙여넣어 주세요."),
+    "f_need_name": ("Pick which column holds the startup or organisation name.", "어느 칸이 스타트업 또는 소속 이름인지 골라주세요."),
+    "f_imported_s": ("Imported {n} startups.", "스타트업 {n}곳을 가져왔어요."),
+    "f_imported_h": ("Imported {n} hosts.", "호스트 {n}곳을 가져왔어요."),
+    "f_loaded_project": ("Loaded project {f}", "{f} 프로젝트를 불러왔어요"),
+    "f_project_fail": ("Could not load project: {e}", "프로젝트를 불러오지 못했어요: {e}"),
+    # generate
+    "fix_errors": ("Fix these before generating:", "일정을 만들기 전에 아래 문제를 고쳐주세요:"),
+    "m_attending": ("Startups attending", "참석 스타트업"),
+    "not_here": ("{n} not here", "{n}곳 불참"),
+    "m_hosts": ("Hosts", "호스트"),
+    "m_slots": ("Slots", "슬롯"),
+    "m_pairs": ("Eligible pairs", "가능한 매칭 쌍"),
+    "m_poldays": ("Polishing days", "폴리싱 진행일"),
+    "off": ("Off", "꺼짐"),
+    "rules": ("Rules", "규칙"),
+    "packing": ("Host slot packing", "호스트 일정 배치"),
+    "pack_front": ("Front-packed: start at their availability, no gaps", "앞에서부터 채우기: 가능한 시간부터 빈칸 없이"),
+    "pack_block": ("Contiguous block: no gaps, may start later", "한 덩어리로: 빈칸 없이, 시작은 늦어도 됨"),
+    "pack_soft": ("Soft: minimise gaps", "유연하게: 빈칸 최소화"),
+    "warn_front": ("Up to {peak} hosts are available at the same time but there are only {tables} tables, so they "
+                   "cannot all start at their first slot. Front-packed will leave some hosts empty. Use Contiguous "
+                   "block instead.",
+                   "같은 시간에 호스트가 최대 {peak}명인데 테이블은 {tables}개뿐이라 모두 첫 슬롯부터 시작할 수 없어요. "
+                   "앞에서부터 채우기를 쓰면 미팅이 없는 호스트가 생겨요. 한 덩어리로 모드를 써주세요."),
+    "pw": ("Priority weight", "우선순위 가중치"),
+    "pw_help": ("How strongly priority startups are favoured when slots are scarce", "슬롯이 부족할 때 우선 스타트업을 얼마나 챙길지"),
+    "tl": ("Solver time limit (seconds)", "계산 시간 제한 (초)"),
+    "hf": ("Spread meetings fairly across hosts too", "호스트 간에도 미팅을 고르게 배분"),
+    "pe": ("Prefer earlier slots", "이른 시간 우선"),
+    "keep_live": ("Keep pinned meetings (moved by hand) and anything already Ongoing, Done or No-Show, and "
+                  "reschedule the rest",
+                  "직접 옮긴(고정된) 미팅과 이미 진행 중·완료·노쇼인 미팅은 그대로 두고 나머지만 다시 짜기"),
+    "always": ("Always enforced: each startup and host meet at most once, nobody is double booked, tables are never "
+               "over capacity, availability, cutoffs, blocked times and domain exclusions are respected.",
+               "항상 지키는 규칙: 같은 스타트업과 호스트는 최대 한 번만 만나고, 누구도 같은 시간에 두 미팅이 잡히지 않으며, "
+               "테이블 수·참석 시간·컷오프·불가 시간·분야 제외를 모두 지켜요."),
+    "generate": ("Generate schedule", "일정 생성"),
+    "spinner": ("Optimising with OR-Tools CP-SAT…", "OR-Tools로 최적화하는 중…"),
+    "solve_OPTIMAL": ("Optimal schedule found.", "최적 일정을 찾았어요."),
+    "solve_FEASIBLE": ("Good schedule found within the time limit (not proven optimal).",
+                       "제한 시간 안에 좋은 일정을 찾았어요 (최적인지는 확인 전)."),
+    "solve_INFEASIBLE": ("No schedule satisfies every hard rule. Usually the meetings kept from the live board clash "
+                         "with the packing rule. Try the Soft packing mode.",
+                         "모든 규칙을 만족하는 일정이 없어요. 보통 유지하려는 미팅이 배치 규칙과 충돌해서 그래요. 유연하게 모드를 써보세요."),
+    "solve_UNKNOWN": ("The solver ran out of time before finding a schedule. Raise the time limit.",
+                      "제한 시간 안에 일정을 찾지 못했어요. 계산 시간 제한을 늘려주세요."),
+    "solve_MODEL_INVALID": ("The model is invalid. Please report this with your input file.",
+                            "모델에 문제가 있어요. 입력 파일과 함께 알려주세요."),
+    "gen_success": ("{msg} {n} meetings{pol} in {sec}s. Open the Results tab.",
+                    "{msg} 미팅 {n}개{pol}를 {sec}초 만에 배정했어요. 결과 탭을 열어보세요."),
+    "gen_pol": (" and {n} pitch polishing sessions", ", 피치 폴리싱 {n}회"),
+    "dropped": ("These kept meetings no longer fit the setup and were dropped: ", "지금 설정에 맞지 않아 빠진 미팅: "),
+    "last_run": ("Last run: {st} · {n} meetings · {sec}s · {v} decision variables",
+                 "마지막 실행: {st} · 미팅 {n}개 · {sec}초 · 변수 {v}개"),
+    # results
+    "gen_first": ("Generate a schedule first.", "먼저 일정을 생성해 주세요."),
+    "day": ("Day", "일차"),
+    "setup_changed": ("Setup changed since this schedule was generated. Generate again to apply the changes.",
+                      "일정을 만든 뒤 설정이 바뀌었어요. 다시 생성하면 반영돼요."),
+    "m_meetings": ("Meetings", "미팅"),
+    "unplaced": ("{n} unplaced", "{n}개 미배정"),
+    "m_with": ("Startups with meetings", "미팅 있는 스타트업"),
+    "m_avg": ("Avg per startup", "스타트업당 평균"),
+    "m_pol": ("Pitch polishing", "피치 폴리싱"),
+    "m_clash": ("Clashes", "충돌"),
+    "board_cap": ("Drag a meeting onto another table or time. Green fits, amber pushes the meetings in the way to the "
+                  "nearest free time, red is a clash. Click a meeting to set its status, pin it or unschedule it. "
+                  "Ctrl+Z undoes.",
+                  "미팅을 끌어서 다른 테이블이나 시간에 놓아보세요. 초록은 그대로 들어가고, 주황은 겹치는 일정을 가장 가까운 "
+                  "빈 시간으로 밀어내고, 빨강은 충돌이에요. 미팅을 클릭하면 상태 변경·고정·배정 취소를 할 수 있어요. "
+                  "Ctrl+Z로 되돌려요."),
+    "clashes_exp": ("{n} clash(es) to resolve", "해결할 충돌 {n}건"),
+    "verified": ("Verified: no duplicate pairs, no double booking, table capacity, availability, cutoffs, blocked "
+                 "times, domain exclusions", "검증 완료: 중복 매칭 없음, 겹치는 일정 없음, 테이블 수·참석 시간·컷오프·불가 시간·분야 제외 모두 지킴"),
+    "verified_pol": (", pitch polishing", ", 피치 폴리싱"),
+    "gaps_note": ("Note: {n} host schedule(s) now have a gap after manual moves.",
+                  "참고: 직접 옮긴 뒤 호스트 일정 {n}개에 빈 시간이 생겼어요."),
+    "practice": ("Pitching practice", "피치 연습"),
+    "practice_cap": ("The same sessions as the Pitch polishing column on the board. Drag them on the board to change "
+                     "the time. Status and Focus / Mentor Note edited here show on the board and in the Excel file.",
+                     "보드의 피치 폴리싱 칸과 같은 일정이에요. 시간은 보드에서 끌어서 바꾸고, 여기서 고친 상태와 "
+                     "포커스·멘토 노트는 보드와 엑셀에 같이 반영돼요."),
+    "pc_time": ("Time", "시간"),
+    "pc_startup": ("Startup", "스타트업"),
+    "pc_presenter": ("Presenter", "발표자"),
+    "pc_round": ("Round", "회차"),
+    "pc_status": ("Status", "상태"),
+    "pc_note": ("Focus / Mentor Note", "포커스 / 멘토 노트"),
+    "round_1": ("1st", "1회차"),
+    "round_2": ("2nd", "2회차"),
+    "round_n": ("{n}th", "{n}회차"),
+    "auto_help": ("Auto follows the clock", "Auto는 시간에 따라 자동으로 바뀌어요"),
+    "presenter_help": ("Edit presenters in tab 1", "발표자는 1번 탭에서 수정하세요"),
+    "summary_s": ("Startup summary", "스타트업 요약"),
+    "summary_h": ("Host summary", "호스트 요약"),
+    "dl_excel": ("Download Excel (.xlsx)", "엑셀 다운로드 (.xlsx)"),
+    "dl_csv": ("Download meetings (.csv)", "미팅 목록 다운로드 (.csv)"),
+    "excel_lang": ("The Excel file is written in English so it can be shared with participants.",
+                   "엑셀 파일은 참가자와 공유하기 좋게 영어로 만들어져요."),
+    "lunch_row": ("Lunch break", "점심시간"),
+}
+
+# Default headings of the participant tables
+COL_LABELS = {
+    "en": {"Name": "Name", "Presenter": "Presenter", "Domain": "Domain", "Days": "Days",
+           "Available From": "Available From", "Available Until": "Available Until", "Blocked Times": "Blocked Times",
+           "Priority": "Priority", "Pitch Polishing": "Pitch Polishing", "Max Meetings": "Max Meetings",
+           "Contact": "Contact", "Type": "Type", "Excluded Domains": "Excluded Domains", "_host_name": "Organisation"},
+    "ko": {"Name": "이름", "Presenter": "발표자", "Domain": "분야", "Days": "참석일", "Available From": "가능 시작",
+           "Available Until": "가능 종료", "Blocked Times": "불가 시간", "Priority": "우선", "Pitch Polishing": "피치 폴리싱",
+           "Max Meetings": "최대 미팅", "Contact": "담당자", "Type": "유형", "Excluded Domains": "제외 분야",
+           "_host_name": "소속"},
+}
+
+# Summary table headings shown in the app (data keeps the English names)
+SUMMARY_KO = {"Startup Name": "스타트업", "Presenter": "발표자", "Attendance": "참석", "Domain": "분야", "Priority": "우선",
+              "Total Meetings": "총 미팅", "No-Shows": "노쇼", "Eligible Hosts": "가능 호스트", "Pitch Polishing": "피치 폴리싱",
+              "Host": "호스트", "Contact": "담당자", "Type": "유형", "Startups Met": "만난 스타트업"}
+
+
+def lang() -> str:
+    v = st.session_state.get("lang", "en")
+    return v if v in LANGS else "en"
+
+
+def T(key: str, **kw) -> str:
+    en, ko = S[key]
+    text = ko if lang() == "ko" else en
+    return text.format(**kw) if kw else text

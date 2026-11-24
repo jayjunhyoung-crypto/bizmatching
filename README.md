@@ -12,6 +12,8 @@ bizmatch/
 
 ## What it does
 
+**Language.** The whole app (setup, results and the drag-and-drop board) is available in English and Korean (한국어). Switch at the top right. The choice is kept in the link (`?lang=ko`), so you can share a Korean link. The Excel file stays in English so it can go to participants, and Korean column headings (스타트업, 발표자, 분야, 참석일 ...) and inputs such as `불참` or `1일차` are understood when you paste.
+
 **Tab 1. Event & Participants**
 - Multi-day events (one row per day, with dates), day start and end, meeting length (default 20 min), optional gap between meetings, lunch break, number of tables, time zone.
 - **Sessions** such as `Session A 10:00-12:00; Session B 13:00-15:00; Session C 15:00-17:00`. They group the timeline exactly like the team's sheet.
