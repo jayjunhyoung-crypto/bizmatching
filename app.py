@@ -1,169 +1,1867 @@
+"""
+BizMatch Scheduler
+==================
+Generates optimal, conflict-free 1:1 business matching schedules
+(startup x investor/corporate speed meetings) with Streamlit + Google OR-Tools CP-SAT.
 
-import streamlit as st
-import pandas as pd
-from ortools.sat.python import cp_model
+Run locally:   streamlit run app.py
+"""
+from __future__ import annotations
+
+import hashlib
 import io
+import json
+import re
+import time as _time
+from collections import defaultdict
+from dataclasses import asdict, dataclass, field
+from datetime import date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
-# ----------------- 페이지 설정 -----------------
-st.set_page_config(page_title="1:1 Biz Matching Scheduler", layout="wide", page_icon="📅")
+import pandas as pd
+import streamlit as st
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.cell.rich_text import CellRichText, TextBlock
+from openpyxl.cell.text import InlineFont
+from openpyxl.formatting.rule import CellIsRule, DataBarRule, FormulaRule
+from openpyxl.styles.colors import Color
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.datavalidation import DataValidation
+from ortools.sat.python import cp_model
 
-st.title("🎯 KSC 1:1 Business Matching Scheduler Platform")
-st.caption("참가자 정보와 제약조건을 입력하면 AI 최적화 엔진(OR-Tools)이 중복과 공백 없는 최적 시간표를 자동 생성합니다.")
+# --------------------------------------------------------------------------------------
+# Constants
+# --------------------------------------------------------------------------------------
+APP_TITLE = "BizMatch Scheduler"
+STATUSES = ["Scheduled", "Ongoing", "Done", "No-Show"]
+STATUS_CHOICES = ["Auto"] + STATUSES
+LOCK_STATUSES = {"Ongoing", "Done", "No-Show"}
+HOST_TYPES = ["Investor", "Corporate", "Agency", "Mentor", "Other"]
+PACKING = {
+    "front": "Front-packed: start at their availability, no gaps",
+    "block": "Contiguous block: no gaps, may start later",
+    "soft": "Soft: minimise gaps",
+}
+STARTUP_COLS = ["Name", "Domain", "Days", "Available From", "Available Until",
+                "Blocked Times", "Priority", "Pitch Polishing", "Max Meetings"]
+ABSENT_WORDS = ("none", "no", "absent", "not here", "not attending", "cancelled", "canceled",
+                "x", "dropped", "withdrawn")
+HOST_COLS = ["Name", "Contact", "Type", "Days", "Available From", "Available Until",
+             "Blocked Times", "Excluded Domains", "Max Meetings"]
+TIMEZONES = ["Asia/Singapore", "Asia/Seoul", "Asia/Tokyo", "Asia/Hong_Kong", "Asia/Shanghai",
+             "Asia/Jakarta", "Asia/Bangkok", "Asia/Kolkata", "Asia/Dubai", "Europe/London",
+             "Europe/Berlin", "America/New_York", "America/Los_Angeles", "UTC"]
+TIME_VALID = r"^$|^([01]?\d|2[0-4])[:.][0-5]\d$"
+TIME_RE = re.compile(r"^(\d{1,2})[:.](\d{2})(?::\d{2})?$")
+RANGE_RE = re.compile(
+    r"^(?P<day>.*?)\s*(?P<a>\d{1,2}[:.]\d{2})\s*(?:-|–|to)\s*(?P<b>\d{1,2}[:.]\d{2})$", re.I)
 
-# ----------------- 사이드바 설정 -----------------
-with st.sidebar:
-    st.header("⚙️ 행사 환경 설정")
-    slot_duration = st.selectbox("미팅 단위 (분)", [15, 20, 30], index=1)
-    max_tables = st.slider("최대 운영 테이블 수", 2, 10, 6)
-    
-    st.subheader("시간대 설정")
-    time_slots = st.text_area(
-        "슬롯 목록 (엔터로 구분)",
-        value="10:00 - 10:20\n10:20 - 10:40\n10:40 - 11:00\n11:00 - 11:20\n11:20 - 11:40\n11:40 - 12:00\n"
-              "13:00 - 13:20\n13:20 - 13:40\n13:40 - 14:00\n14:00 - 14:20\n14:20 - 14:40\n14:40 - 15:00\n"
-              "15:00 - 15:20\n15:20 - 15:40\n15:40 - 16:00\n16:00 - 16:20\n16:20 - 16:40\n16:40 - 17:00",
-        height=200
-    ).strip().split("\n")
+# Objective weights. BASE dominates so the solver never trades meetings for fairness.
+W_BASE = 10_000          # every meeting
+W_PRIORITY_BONUS = 2_000  # extra per meeting for priority startups, per weight step
+W_FAIR_STARTUP = 6_000    # concave fairness reward for startups: W/j for the j-th meeting
+W_FAIR_HOST = 1_500       # concave fairness reward for hosts
+W_GAP = 4_000             # soft packing: penalty per extra block
+W_EARLY = 1               # tiny push toward earlier slots
+W_POLISH = 60_000         # a pitch polishing session outranks any single meeting
 
-# ----------------- 탭 구성 -----------------
-tab1, tab2, tab3 = st.tabs(["📝 데이터 입력 및 관리", "⚡ 스케줄 생성 및 최적화", "📊 결과 및 다운로드"])
 
-with tab1:
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("1. 참가 스타트업 명단")
-        default_startups = pd.DataFrame({
-            "Startup": ["Flexcuit", "HeyHR", "Artlive", "yeon living", "Genstory", "GOGAETOK", 
-                        "CircledDot.Co", "RentTrail", "MayMay", "Hiddit", "Matey", "Hello Science Edu", 
-                        "What’s For Protein", "Huole (Miri)"],
-            "Unavailable_Slots": ["", "16:00 - 16:20, 16:20 - 16:40, 16:40 - 17:00", "", "", "", "", "", "", "", "", "", "", "", ""]
-        })
-        startups_df = st.data_editor(default_startups, num_rows="dynamic", use_container_width=True, key="startups_table")
+# --------------------------------------------------------------------------------------
+# Parsing helpers
+# --------------------------------------------------------------------------------------
+def is_blank(v) -> bool:
+    if v is None:
+        return True
+    try:
+        if pd.isna(v):
+            return True
+    except (TypeError, ValueError):
+        pass
+    return str(v).strip().lower() in ("", "nan", "none", "nat", "<na>", "-")
 
-    with col2:
-        st.subheader("2. 참가 투자자/파트너 (호스트)")
-        default_hosts = pd.DataFrame({
-            "Host": ["Raymond", "Dawn Lee", "Joshia Kwa", "Gloria Traenkle", "Dave Kwong", "Alex Neo", "Bryan Wu", "Elaine Lai", "Shane Tay", "Alrick Oh"],
-            "Organization": ["Focus Tech", "Paypal", "Integra", "Angel Inv", "Incubate Fund", "Singtel Innov8", "Crystalline", "Gateway of Asia", "FOMO Pay", "Berru"],
-            "Max_Meetings": [10, 6, 8, 6, 8, 6, 6, 12, 8, 8]
-        })
-        hosts_df = st.data_editor(default_hosts, num_rows="dynamic", use_container_width=True, key="hosts_table")
 
-# 세션 상태 저장
-if "schedule_results" not in st.session_state:
-    st.session_state.schedule_results = None
+def to_min(v) -> int | None:
+    """'14:30' / time(14,30) / '14.30' -> minutes since midnight."""
+    if is_blank(v):
+        return None
+    if isinstance(v, (time, datetime)):
+        return v.hour * 60 + v.minute
+    s = str(v).strip()
+    m = TIME_RE.match(s)
+    if not m:
+        raise ValueError(f"'{s}' is not a time, use HH:MM")
+    h, mi = int(m.group(1)), int(m.group(2))
+    if h > 24 or mi > 59 or (h == 24 and mi):
+        raise ValueError(f"'{s}' is not a valid time")
+    return h * 60 + mi
 
-with tab2:
-    st.subheader("🚀 매칭 최적화 실행")
-    st.write("규칙: **1:1 중복 절대 금지(0회)**, **동시간대 중복 방지**, **호스트별 연속 슬롯 밀착 배정**")
-    
-    if st.button("스케줄 자동 생성 시작", type="primary"):
-        with st.spinner("AI 최적화 솔버(Google OR-Tools)가 충돌 없는 최적 시간표를 계산 중입니다..."):
-            
-            # --- OR-Tools CP-SAT 최적화 로직 ---
-            model = cp_model.CpModel()
-            
-            s_list = startups_df["Startup"].dropna().tolist()
-            h_list = hosts_df["Host"].dropna().tolist()
-            t_list = time_slots
-            
-            # 변수 생성: X[s, h, t] == 1 이면 시간 t에 스타트업 s와 호스트 h 매칭
-            x = {}
-            for s in s_list:
-                for h in h_list:
-                    for t_idx, t in enumerate(t_list):
-                        x[s, h, t_idx] = model.NewBoolVar(f"x_{s}_{h}_{t_idx}")
-                        
-            # 제약 1: 스타트업-호스트 간 전체 일정 중 최대 1회만 미팅
-            for s in s_list:
-                for h in h_list:
-                    model.Add(sum(x[s, h, t_idx] for t_idx in range(len(t_list))) <= 1)
-                    
-            # 제약 2: 특정 시간에 스타트업은 최대 1개 미팅만
-            for s in s_list:
-                for t_idx in range(len(t_list)):
-                    model.Add(sum(x[s, h, t_idx] for h in h_list) <= 1)
-                    
-            # 제약 3: 특정 시간에 호스트는 최대 1개 미팅만
-            for h in h_list:
-                for t_idx in range(len(t_list)):
-                    model.Add(sum(x[s, h, t_idx] for s in s_list) <= 1)
 
-            # 제약 4: 특정 시간에 전체 테이블 수(max_tables) 이하
-            for t_idx in range(len(t_list)):
-                model.Add(sum(x[s, h, t_idx] for s in s_list for h in h_list) <= max_tables)
+def fmt(m: int) -> str:
+    return f"{m // 60:02d}:{m % 60:02d}"
 
-            # 목적 함수: 총 미팅 수 극대화 + 앞쪽 시간대 슬롯 우선 배정(가중치)
-            objective_terms = []
-            for t_idx in range(len(t_list)):
-                time_weight = len(t_list) - t_idx  # 앞쪽 시간일수록 가중치를 주어 Gap 최소화
-                for s in s_list:
-                    for h in h_list:
-                        objective_terms.append(x[s, h, t_idx] * (100 + time_weight))
-            model.Maximize(sum(objective_terms))
 
-            # 풀이 실행
-            solver = cp_model.CpSolver()
-            solver.parameters.max_time_in_seconds = 10.0
-            status = solver.Solve(model)
+def tstr(v) -> str:
+    """Normalise any time-like cell to 'HH:MM' text (or '')."""
+    try:
+        m = to_min(v)
+    except ValueError:
+        return str(v)
+    return "" if m is None else fmt(m)
 
-            if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-                results = []
-                summary = {s: [] for s in s_list}
-                
-                for t_idx, t in enumerate(t_list):
-                    slot_row = {"Time Slot": t}
-                    active_startups_in_slot = []
-                    table_num = 1
-                    
-                    for h in h_list:
-                        for s in s_list:
-                            if solver.Value(x[s, h, t_idx]) == 1:
-                                slot_row[f"Table {table_num}"] = f"{s}\n({h})"
-                                active_startups_in_slot.append(s)
-                                summary[s].append(h)
-                                table_num += 1
-                                
-                    for rem in range(table_num, max_tables + 1):
-                        slot_row[f"Table {rem}"] = "-"
-                        
-                    waiting = [s for s in s_list if s not in active_startups_in_slot]
-                    slot_row["Waiting List"] = " • ".join(waiting)
-                    results.append(slot_row)
-                    
-                st.session_state.schedule_results = pd.DataFrame(results)
-                
-                summary_rows = []
-                for s, matched in summary.items():
-                    summary_rows.append({
-                        "Startup": s,
-                        "Total Meetings": len(matched),
-                        "Matched Partners": ", ".join(matched)
-                    })
-                st.session_state.summary_results = pd.DataFrame(summary_rows)
-                st.success("🎉 최적 스케줄이 성공적으로 생성되었습니다! [결과 및 다운로드] 탭을 확인하세요.")
+
+def split_list(v) -> list[str]:
+    if is_blank(v):
+        return []
+    return [t.strip() for t in re.split(r"[;,/|\n]+", str(v)) if t.strip()]
+
+
+def norm(t: str) -> str:
+    return re.sub(r"\s+", " ", str(t).strip().lower())
+
+
+def to_bool(v) -> bool:
+    if is_blank(v):
+        return False
+    if isinstance(v, bool):
+        return v
+    return norm(v) in ("true", "yes", "y", "1", "x", "o", "priority", "✓", "v")
+
+
+def to_int(v) -> int | None:
+    if is_blank(v):
+        return None
+    try:
+        n = int(float(v))
+    except (TypeError, ValueError):
+        raise ValueError(f"'{v}' is not a number")
+    return n if n > 0 else None
+
+
+def parse_days(v, labels: list[str]) -> frozenset[int]:
+    """Blank/All -> every day. 'Not here'/'None' -> no day. Accepts 'Day 2', '2', '1,2' or a day label."""
+    if isinstance(v, str) and norm(v) in ABSENT_WORDS:
+        return frozenset()
+    if is_blank(v) or norm(v) in ("all", "any", "both", "every day"):
+        return frozenset(range(len(labels)))
+    if norm(v) in ABSENT_WORDS:
+        return frozenset()
+    out = set()
+    lab = {norm(l): i for i, l in enumerate(labels)}
+    for tok in re.split(r"[;,/|&+]+|\band\b", str(v)):
+        t = norm(tok)
+        if not t:
+            continue
+        if t in lab:
+            out.add(lab[t])
+            continue
+        m = re.fullmatch(r"(?:day\s*|d)?(\d+)", t)
+        if m and 1 <= int(m.group(1)) <= len(labels):
+            out.add(int(m.group(1)) - 1)
+            continue
+        raise ValueError(f"unknown day '{tok.strip()}'")
+    return frozenset(out)
+
+
+def parse_blocked(v, labels: list[str]) -> tuple:
+    """'Day 1 14:00-15:00; 16:20-16:40' -> ((0, 840, 900), (None, 980, 1000))."""
+    out = []
+    for item in split_list(v):
+        m = RANGE_RE.match(item)
+        if not m:
+            raise ValueError(f"blocked time '{item}' should look like 'Day 1 14:00-15:00'")
+        a, b = to_min(m.group("a")), to_min(m.group("b"))
+        if b <= a:
+            raise ValueError(f"blocked time '{item}' ends before it starts")
+        day = m.group("day").strip()
+        if day:
+            for d in parse_days(day, labels):
+                out.append((d, a, b))
+        else:
+            out.append((None, a, b))
+    return tuple(out)
+
+
+# --------------------------------------------------------------------------------------
+# Domain model
+# --------------------------------------------------------------------------------------
+@dataclass
+class EventConfig:
+    name: str = "Business Matching"
+    days: list = field(default_factory=lambda: [{"label": "Day 1", "date": ""}])
+    start: int = 600
+    end: int = 1020
+    interval: int = 20
+    buffer: int = 0
+    lunch_start: int | None = 720
+    lunch_end: int | None = 780
+    tables: int = 6
+    tz: str = "Asia/Singapore"
+    sessions: list = field(default_factory=list)      # [{"name": "Session A", "start": 600, "end": 720}]
+    pol_days: list = field(default_factory=list)      # day indexes with pitch polishing
+    pol_start: int | None = None
+    pol_end: int | None = None
+    pol_cap: int = 1                                  # startups polished at the same time
+
+    @property
+    def labels(self) -> list[str]:
+        return [d["label"] for d in self.days]
+
+    def has_lunch(self) -> bool:
+        return (self.lunch_start is not None and self.lunch_end is not None
+                and self.lunch_end > self.lunch_start
+                and self.lunch_start < self.end and self.lunch_end > self.start)
+
+    def day_date(self, d: int) -> date | None:
+        v = self.days[d].get("date") if d < len(self.days) else None
+        if not v:
+            return None
+        try:
+            return date.fromisoformat(str(v)[:10])
+        except ValueError:
+            return None
+
+    def day_title(self, d: int) -> str:
+        dd = self.day_date(d)
+        return f"{self.days[d]['label']}" + (f" · {dd.strftime('%a %d %b %Y')}" if dd else "")
+
+    def day_short(self, d: int) -> str:
+        dd = self.day_date(d)
+        return dd.strftime("%d %b") if dd else self.days[d]["label"]
+
+    def session_list(self) -> list[dict]:
+        if self.sessions:
+            return sorted(self.sessions, key=lambda x: x["start"])
+        if self.has_lunch():
+            return [{"name": "Session A", "start": self.start, "end": self.lunch_start},
+                    {"name": "Session B", "start": self.lunch_end, "end": self.end}]
+        return [{"name": "Session A", "start": self.start, "end": self.end}]
+
+    def session_of(self, start: int) -> int:
+        for i, x in enumerate(self.session_list()):
+            if x["start"] <= start < x["end"]:
+                return i
+        return -1
+
+    def polish_ok(self, sl: "Slot") -> bool:
+        return (sl.day in self.pol_days and (self.pol_start is None or sl.start >= self.pol_start)
+                and (self.pol_end is None or sl.end <= self.pol_end))
+
+
+def parse_sessions(v) -> list[dict]:
+    """'Session A 10:00-12:00; Session B 13:00-15:00' -> list of sessions."""
+    out = []
+    for i, item in enumerate(split_list(v)):
+        m = RANGE_RE.match(item)
+        if not m:
+            raise ValueError(f"session '{item}' should look like 'Session A 10:00-12:00'")
+        a, b = to_min(m.group("a")), to_min(m.group("b"))
+        if b <= a:
+            raise ValueError(f"session '{item}' ends before it starts")
+        out.append({"name": m.group("day").strip() or f"Session {chr(65 + i)}", "start": a, "end": b})
+    return out
+
+@dataclass(frozen=True)
+class Slot:
+    k: int        # global index
+    day: int
+    idx: int      # index within the day
+    start: int
+    end: int
+
+
+@dataclass(frozen=True)
+class Party:
+    name: str
+    role: str                     # "startup" | "host"
+    days: frozenset
+    frm: int | None = None
+    until: int | None = None
+    blocked: tuple = ()
+    max_m: int | None = None
+    domains: frozenset = frozenset()   # startups
+    excluded: frozenset = frozenset()  # hosts
+    priority: bool = False
+    kind: str = ""                     # host type
+    contact: str = ""                  # host contact person
+    domain_text: str = ""
+    polish: bool = True                # startup takes part in pitch polishing
+
+    @property
+    def absent(self) -> bool:
+        return not self.days
+
+    def available(self, sl: Slot) -> bool:
+        if sl.day not in self.days:
+            return False
+        if self.frm is not None and sl.start < self.frm:
+            return False
+        if self.until is not None and sl.end > self.until:
+            return False
+        for d, a, b in self.blocked:
+            if (d is None or d == sl.day) and sl.start < b and sl.end > a:
+                return False
+        return True
+
+
+def host_label(h) -> str:
+    """'Raymond · Focus Tech' when a contact person is set."""
+    if isinstance(h, str):
+        return h
+    return f"{h.contact} · {h.name}" if h.contact else h.name
+
+
+def compatible(s: Party, h: Party) -> bool:
+    return not (s.domains & h.excluded)
+
+
+@dataclass
+class Meeting:
+    day: int
+    k: int
+    start: int
+    end: int
+    startup: str
+    host: str
+    table: int = 0
+
+    @property
+    def mid(self) -> str:
+        return f"D{self.day + 1}-{fmt(self.start)}-{self.host}-{self.startup}"
+
+
+@dataclass
+class Polish:
+    day: int
+    k: int
+    start: int
+    end: int
+    startup: str
+    n: int = 1          # 1 = first polishing session for this startup, 2 = second, ...
+
+
+def number_polish(polish: list[Polish]) -> list[Polish]:
+    seen = defaultdict(int)
+    for p in sorted(polish, key=lambda p: (p.k, p.startup)):
+        seen[p.startup] += 1
+        p.n = seen[p.startup]
+    return sorted(polish, key=lambda p: (p.k, p.startup))
+
+
+def build_slots(cfg: EventConfig) -> list[Slot]:
+    out: list[Slot] = []
+    if cfg.interval < 5 or cfg.end <= cfg.start:
+        return out
+    for d in range(len(cfg.days)):
+        t, i = cfg.start, 0
+        while t + cfg.interval <= cfg.end and len(out) < 5000:
+            if cfg.has_lunch() and t < cfg.lunch_end and t + cfg.interval > cfg.lunch_start:
+                t = cfg.lunch_end
+                continue
+            out.append(Slot(len(out), d, i, t, t + cfg.interval))
+            i += 1
+            t += cfg.interval + cfg.buffer
+    return out
+
+
+def parse_parties(df: pd.DataFrame, role: str, labels: list[str]) -> tuple[list[Party], list[str]]:
+    parties, errors, seen = [], [], set()
+    what = "Startups" if role == "startup" else "Hosts"
+    for i, row in df.reset_index(drop=True).iterrows():
+        name = "" if is_blank(row.get("Name")) else str(row.get("Name")).strip()
+        if not name:
+            if any(not is_blank(row.get(c)) for c in df.columns if c not in ("Priority",)):
+                errors.append(f"{what} row {i + 1}: name is missing")
+            continue
+        where = f"{what} row {i + 1} ({name})"
+        if norm(name) in seen:
+            errors.append(f"{where}: duplicate name")
+            continue
+        seen.add(norm(name))
+        try:
+            frm, until = to_min(row.get("Available From")), to_min(row.get("Available Until"))
+            if frm is not None and until is not None and until <= frm:
+                raise ValueError("Available Until must be after Available From")
+            kw = dict(
+                name=name, role=role,
+                days=parse_days(row.get("Days"), labels),
+                frm=frm, until=until,
+                blocked=parse_blocked(row.get("Blocked Times"), labels),
+                max_m=to_int(row.get("Max Meetings")),
+            )
+            if role == "startup":
+                doms = split_list(row.get("Domain"))
+                pv = row.get("Pitch Polishing")
+                kw.update(domains=frozenset(norm(x) for x in doms),
+                          priority=to_bool(row.get("Priority")), domain_text=", ".join(doms),
+                          polish=True if is_blank(pv) else to_bool(pv))
             else:
-                st.error("조건을 만족하는 시간표를 찾을 수 없습니다. 제약조건을 완화해 주세요.")
+                kind = "" if is_blank(row.get("Type")) else str(row.get("Type")).strip()
+                kw.update(excluded=frozenset(norm(x) for x in split_list(row.get("Excluded Domains"))),
+                          kind=kind or "Investor",
+                          contact="" if is_blank(row.get("Contact")) else str(row.get("Contact")).strip())
+            parties.append(Party(**kw))
+        except ValueError as e:
+            errors.append(f"{where}: {e}")
+    return parties, errors
 
-with tab3:
-    if st.session_state.schedule_results is not None:
-        st.subheader("📅 생성된 20분 비즈 매칭 타임테이블")
-        st.dataframe(st.session_state.schedule_results, use_container_width=True)
 
-        st.subheader("📈 스타트업별 매칭 현황 요약")
-        st.dataframe(st.session_state.summary_results, use_container_width=True)
+# --------------------------------------------------------------------------------------
+# Solver
+# --------------------------------------------------------------------------------------
+@dataclass
+class SolverSettings:
+    packing: str = "front"
+    time_limit: float = 20.0
+    priority_weight: int = 3
+    host_fairness: bool = True
+    prefer_early: bool = True
+    workers: int = 8
 
-        # 엑셀 다운로드
-        buffer = io.BytesIO()
-        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-            st.session_state.schedule_results.to_excel(writer, sheet_name='Matching Schedule', index=False)
-            st.session_state.summary_results.to_excel(writer, sheet_name='Startup Summary', index=False)
-            
-        st.download_button(
-            label="📥 엑셀 파일(.xlsx)로 전체 다운로드",
-            data=buffer.getvalue(),
-            file_name="Biz_Matching_Schedule_Optimized.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+
+@dataclass
+class SolveResult:
+    status: str
+    meetings: list
+    message: str
+    wall: float
+    n_vars: int
+    objective: float | None = None
+    bound: float | None = None
+    kept: int = 0
+    dropped_fixed: list = field(default_factory=list)
+    polish: list = field(default_factory=list)
+
+
+def solve_schedule(cfg: EventConfig, slots: list[Slot], startups: list[Party], hosts: list[Party],
+                   settings: SolverSettings, fixed: list[tuple] = (),
+                   fixed_polish: list[tuple] = ()) -> SolveResult:
+    """fixed: [(startup, host, day, start_minute)] meetings that must stay as they are.
+    fixed_polish: [(startup, day, start_minute)] polishing sessions that must stay."""
+    t0 = _time.time()
+    model = cp_model.CpModel()
+    av_s = [[s.available(sl) for sl in slots] for s in startups]
+    av_h = [[h.available(sl) for sl in slots] for h in hosts]
+
+    x: dict[tuple[int, int, int], cp_model.IntVar] = {}
+    by_pair, by_sk, by_hk, by_k = defaultdict(list), defaultdict(list), defaultdict(list), defaultdict(list)
+    by_s, by_h = defaultdict(list), defaultdict(list)
+    for si, s in enumerate(startups):
+        for hi, h in enumerate(hosts):
+            if not compatible(s, h):
+                continue
+            for sl in slots:
+                if av_s[si][sl.k] and av_h[hi][sl.k]:
+                    v = model.NewBoolVar(f"x_{si}_{hi}_{sl.k}")
+                    x[si, hi, sl.k] = v
+                    by_pair[si, hi].append(v)
+                    by_sk[si, sl.k].append(v)
+                    by_hk[hi, sl.k].append(v)
+                    by_k[sl.k].append(v)
+                    by_s[si].append(v)
+                    by_h[hi].append(v)
+
+    # Pitch polishing: q[si, k] = startup si is in polishing during slot k
+    q: dict[tuple[int, int], cp_model.IntVar] = {}
+    q_k, q_sd = defaultdict(list), defaultdict(list)
+    for si, s in enumerate(startups):
+        if not s.polish:
+            continue
+        for sl in slots:
+            if av_s[si][sl.k] and cfg.polish_ok(sl):
+                v = model.NewBoolVar(f"q_{si}_{sl.k}")
+                q[si, sl.k] = v
+                q_k[sl.k].append(v)
+                q_sd[si, sl.day].append(v)
+    for vs in q_sd.values():
+        model.AddAtMostOne(vs)                     # one polishing session per startup per day
+    for vs in q_k.values():
+        if len(vs) > cfg.pol_cap:
+            model.Add(sum(vs) <= max(1, cfg.pol_cap))
+
+    # Fixed meetings (live re-planning)
+    s_ix = {s.name: i for i, s in enumerate(startups)}
+    h_ix = {h.name: i for i, h in enumerate(hosts)}
+    k_ix = {(sl.day, sl.start): sl.k for sl in slots}
+    kept, dropped = 0, []
+    for sn, hn, d, start in fixed:
+        key = (s_ix.get(sn), h_ix.get(hn), k_ix.get((d, start)))
+        if key in x:
+            model.Add(x[key] == 1)
+            kept += 1
+        else:
+            dropped.append(f"{sn} with {hn} at {fmt(start)}")
+    for sn, d, start in fixed_polish:
+        key = (s_ix.get(sn), k_ix.get((d, start)))
+        if key in q:
+            model.Add(q[key] == 1)
+            kept += 1
+        else:
+            dropped.append(f"{sn} pitch polishing at {fmt(start)}")
+
+    # 1. Each pair meets at most once across the whole event
+    for vs in by_pair.values():
+        model.AddAtMostOne(vs)
+    # 2. No double booking for startups (meetings and polishing) or hosts
+    for key in set(by_sk) | set(q):
+        vs = by_sk.get(key, []) + ([q[key]] if key in q else [])
+        if len(vs) > 1:
+            model.AddAtMostOne(vs)
+    for vs in by_hk.values():
+        model.AddAtMostOne(vs)
+    # 3. Table capacity per slot
+    for vs in by_k.values():
+        if len(vs) > cfg.tables:
+            model.Add(sum(vs) <= cfg.tables)
+    # 4. Max meetings per participant
+    for si, s in enumerate(startups):
+        if s.max_m is not None and len(by_s[si]) > s.max_m:
+            model.Add(sum(by_s[si]) <= s.max_m)
+    for hi, h in enumerate(hosts):
+        if h.max_m is not None and len(by_h[hi]) > h.max_m:
+            model.Add(sum(by_h[hi]) <= h.max_m)
+
+    terms: list[tuple] = []
+
+    # 5. Host slot packing (per host, per day, over the host's available slots in order;
+    #    the lunch break is not counted as a gap)
+    for hi, h in enumerate(hosts):
+        for d in range(len(cfg.days)):
+            ks = [sl.k for sl in slots if sl.day == d and av_h[hi][sl.k]]
+            if settings.packing == "front":
+                for a, b in zip(ks, ks[1:]):
+                    if by_hk[hi, b]:
+                        model.Add(sum(by_hk[hi, b]) <= sum(by_hk[hi, a]))
+            else:
+                starts, prev = [], None
+                for k in ks:
+                    if by_hk[hi, k]:
+                        stv = model.NewBoolVar(f"start_{hi}_{k}")
+                        if prev is not None and by_hk[hi, prev]:
+                            model.Add(stv >= sum(by_hk[hi, k]) - sum(by_hk[hi, prev]))
+                        else:
+                            model.Add(stv >= sum(by_hk[hi, k]))
+                        starts.append(stv)
+                    prev = k
+                if settings.packing == "block" and starts:
+                    model.Add(sum(starts) <= 1)
+                elif settings.packing == "soft":
+                    terms += [(v, -W_GAP) for v in starts]
+
+    # Objective: total meetings first, then priority, then fairness, then earliness
+    pw = max(1, int(settings.priority_weight))
+    for si, s in enumerate(startups):
+        vs = by_s[si]
+        if not vs:
+            continue
+        w = pw if s.priority else 1
+        base = W_BASE + (W_PRIORITY_BONUS * (pw - 1) if s.priority else 0)
+        terms += [(v, base) for v in vs]
+        ub = min(len({hi for (a, hi) in by_pair if a == si}),
+                 len({k for (a, k) in by_sk if a == si}),
+                 s.max_m or 10**9)
+        z = [model.NewBoolVar(f"zs_{si}_{j}") for j in range(ub)]
+        for a, b in zip(z, z[1:]):
+            model.AddImplication(b, a)
+        model.Add(sum(z) == sum(vs))
+        terms += [(zj, int(W_FAIR_STARTUP * w / j)) for j, zj in enumerate(z, 1)]
+    if settings.host_fairness:
+        for hi, h in enumerate(hosts):
+            vs = by_h[hi]
+            if not vs:
+                continue
+            ub = min(len({k for (a, k) in by_hk if a == hi and by_hk[a, k]}), h.max_m or 10**9,
+                     len({si for (si, a) in by_pair if a == hi}))
+            z = [model.NewBoolVar(f"zh_{hi}_{j}") for j in range(ub)]
+            for a, b in zip(z, z[1:]):
+                model.AddImplication(b, a)
+            model.Add(sum(z) == sum(vs))
+            terms += [(zj, int(W_FAIR_HOST / j)) for j, zj in enumerate(z, 1)]
+    terms += [(v, W_POLISH) for v in q.values()]
+    if settings.prefer_early:
+        idx = {sl.k: sl.idx for sl in slots}
+        terms += [(v, -W_EARLY * idx[k]) for (si, hi, k), v in x.items() if idx[k]]
+
+    if terms:
+        model.Maximize(cp_model.LinearExpr.WeightedSum([t[0] for t in terms], [t[1] for t in terms]))
+
+    solver = cp_model.CpSolver()
+    solver.parameters.max_time_in_seconds = float(settings.time_limit)
+    solver.parameters.num_workers = int(settings.workers)
+    code = solver.Solve(model)
+    name = solver.StatusName(code)
+    wall = _time.time() - t0
+
+    if code not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        msg = {
+            "INFEASIBLE": "No schedule satisfies every hard rule. Usually the meetings kept from the "
+                          "live board clash with the packing rule. Try the Soft packing mode.",
+            "UNKNOWN": "The solver ran out of time before finding a schedule. Raise the time limit.",
+            "MODEL_INVALID": "The model is invalid. Please report this with your input file.",
+        }.get(name, name)
+        return SolveResult(name, [], msg, wall, len(x), kept=kept, dropped_fixed=dropped)
+
+    sl_by_k = {sl.k: sl for sl in slots}
+    meetings = [Meeting(sl_by_k[k].day, k, sl_by_k[k].start, sl_by_k[k].end,
+                        startups[si].name, hosts[hi].name)
+                for (si, hi, k), v in x.items() if solver.BooleanValue(v)]
+    assign_tables(meetings, cfg.tables, hosts)
+    polish = number_polish([Polish(sl_by_k[k].day, k, sl_by_k[k].start, sl_by_k[k].end, startups[si].name)
+                            for (si, k), v in q.items() if solver.BooleanValue(v)])
+    msg = ("Optimal schedule found." if code == cp_model.OPTIMAL else
+           "Good schedule found within the time limit (not proven optimal).")
+    return SolveResult(name, meetings, msg, wall, len(x) + len(q), solver.ObjectiveValue(),
+                       solver.BestObjectiveBound(), kept, dropped, polish)
+
+
+def assign_tables(meetings: list[Meeting], tables: int, hosts: list[Party]) -> None:
+    """Give each meeting a table so hosts move as little as possible.
+    1. A host continuing from the previous slot keeps its table.
+    2. A host coming back keeps its last table if it is free.
+    3. Anyone else gets the free table that has been empty the longest."""
+    order = {h.name: i for i, h in enumerate(hosts)}
+    by_k = defaultdict(list)
+    for m in meetings:
+        by_k[m.k].append(m)
+    last: dict[tuple[int, str], tuple[int, int]] = {}   # (day, host) -> (table, k)
+    freed: dict[tuple[int, int], int] = {}              # (day, table) -> k when it was last used
+    prev_k: dict[int, int] = {}
+    for k in sorted(by_k):
+        ms = sorted(by_k[k], key=lambda m: order.get(m.host, 0))
+        day = ms[0].day
+        used = set()
+        cont = [m for m in ms if last.get((day, m.host), (0, -9))[1] == prev_k.get(day)]
+        back = [m for m in ms if m not in cont and (day, m.host) in last]
+        for m in cont + back:
+            t = last[(day, m.host)][0]
+            if t not in used:
+                m.table = t
+                used.add(t)
+        for m in ms:
+            if m.table:
+                continue
+            free = [t for t in range(1, tables + 1) if t not in used]
+            t = min(free, key=lambda t: (freed.get((day, t), -1), t))
+            m.table = t
+            used.add(t)
+        for m in ms:
+            last[(day, m.host)] = (m.table, k)
+            freed[(day, m.table)] = k
+        prev_k[day] = k
+    meetings.sort(key=lambda m: (m.k, m.table))
+
+
+def validate(cfg: EventConfig, slots: list[Slot], startups: list[Party], hosts: list[Party],
+             meetings: list[Meeting], packing: str, polish: list[Polish] = ()) -> list[str]:
+    """Independent check of every hard rule on the final schedule."""
+    issues = []
+    S = {s.name: s for s in startups}
+    H = {h.name: h for h in hosts}
+    sl = {s.k: s for s in slots}
+    pairs, sk, hk, tk = set(), set(), set(), set()
+    count_s, count_h = defaultdict(int), defaultdict(int)
+    for m in meetings:
+        s, h = S.get(m.startup), H.get(m.host)
+        if not s or not h:
+            issues.append(f"Unknown participant in {m.mid}")
+            continue
+        if (m.startup, m.host) in pairs:
+            issues.append(f"Duplicate meeting: {m.startup} with {m.host}")
+        pairs.add((m.startup, m.host))
+        for key, bag, label in (((m.startup, m.k), sk, m.startup), ((m.host, m.k), hk, m.host)):
+            if key in bag:
+                issues.append(f"Double booking: {label} at {fmt(m.start)}")
+            bag.add(key)
+        if not 1 <= m.table <= cfg.tables or (m.table, m.k) in tk:
+            issues.append(f"Table clash at {fmt(m.start)} table {m.table}")
+        tk.add((m.table, m.k))
+        if not (s.available(sl[m.k]) and h.available(sl[m.k])):
+            issues.append(f"Outside availability: {m.startup} with {m.host} at {fmt(m.start)}")
+        if not compatible(s, h):
+            issues.append(f"Excluded domain: {m.startup} with {m.host}")
+        count_s[m.startup] += 1
+        count_h[m.host] += 1
+    psd, pcap = set(), defaultdict(int)
+    for p in polish:
+        s = S.get(p.startup)
+        if not s or not s.available(sl[p.k]) or not cfg.polish_ok(sl[p.k]):
+            issues.append(f"Pitch polishing outside availability: {p.startup} at {fmt(p.start)}")
+        if (p.startup, p.k) in sk:
+            issues.append(f"Double booking: {p.startup} has a meeting during pitch polishing at {fmt(p.start)}")
+        if (p.startup, p.day) in psd:
+            issues.append(f"{p.startup} has two pitch polishing sessions on {cfg.days[p.day]['label']}")
+        psd.add((p.startup, p.day))
+        pcap[p.k] += 1
+        if pcap[p.k] > max(1, cfg.pol_cap):
+            issues.append(f"Too many pitch polishing sessions at {fmt(p.start)}")
+    for p in startups + hosts:
+        c = count_s[p.name] if p.role == "startup" else count_h[p.name]
+        if p.max_m and c > p.max_m:
+            issues.append(f"{p.name} exceeds max meetings ({c} > {p.max_m})")
+    if packing in ("front", "block"):
+        for h in hosts:
+            for d in range(len(cfg.days)):
+                pat = "".join("1" if (h.name, s.k) in hk else "0"
+                              for s in slots if s.day == d and h.available(s))
+                core = pat.rstrip("0") if packing == "front" else pat.strip("0")
+                if "0" in core:
+                    issues.append(f"Gap in {h.name}'s {cfg.days[d]['label']} schedule")
+    return issues
+
+
+# --------------------------------------------------------------------------------------
+# Derived views
+# --------------------------------------------------------------------------------------
+def now_for(cfg: EventConfig) -> datetime:
+    try:
+        return datetime.now(ZoneInfo(cfg.tz))
+    except Exception:
+        return datetime.now(ZoneInfo("UTC"))
+
+
+def eff_status(m: Meeting, cfg: EventConfig, statuses: dict, now: datetime) -> str:
+    s = statuses.get(m.mid)
+    if s in STATUSES:
+        return s
+    dd = cfg.day_date(m.day)
+    if dd is None:
+        return "Scheduled"
+    today, nm = now.date(), now.hour * 60 + now.minute
+    if dd < today:
+        return "Done"
+    if dd > today:
+        return "Scheduled"
+    return "Scheduled" if nm < m.start else ("Ongoing" if nm < m.end else "Done")
+
+
+def day_rows(day: int, cfg: EventConfig, slots: list[Slot], startups: list[Party],
+             hosts: list[Party], meetings: list[Meeting], compact: bool = False,
+             polish: list[Polish] = ()) -> list[dict]:
+    """Rows for one day's timeline.
+    Row kinds: slot rows, 'lunch', 'divider' (start of a new session without a lunch before it)
+    and 'done' (compact=True folds the empty tail into one row)."""
+    by_k, pol_k = defaultdict(list), defaultdict(list)
+    for m in meetings:
+        by_k[m.k].append(m)
+    for p in polish:
+        pol_k[p.k].append(p)
+    ds = [s for s in slots if s.day == day]
+    rows, lunch_added = [], not cfg.has_lunch()
+    lunch = {"lunch": True, "start": cfg.lunch_start, "end": cfg.lunch_end,
+             "time": f"{fmt(cfg.lunch_start)}–{fmt(cfg.lunch_end)}" if cfg.has_lunch() else ""}
+    sessions = cfg.session_list()
+    prev_sess = None
+    for sl in ds:
+        if not lunch_added and sl.start >= cfg.lunch_end:
+            rows.append(lunch)
+            lunch_added = True
+        si = cfg.session_of(sl.start)
+        if prev_sess is not None and si != prev_sess and si >= 0 and not rows[-1].get("lunch"):
+            rows.append({"lunch": False, "divider": True, "session": si, "time": "",
+                         "label": sessions[si]["name"]})
+        prev_sess = si
+        tables = [None] * cfg.tables
+        for m in by_k[sl.k]:
+            if 1 <= m.table <= cfg.tables:
+                tables[m.table - 1] = m
+        busy_s = {m.startup for m in by_k[sl.k]} | {p.startup for p in pol_k[sl.k]}
+        busy_h = {m.host for m in by_k[sl.k]}
+        rows.append({
+            "lunch": False, "slot": sl, "start": sl.start, "end": sl.end, "session": si,
+            "time": f"{fmt(sl.start)}–{fmt(sl.end)}", "tables": tables,
+            "polish": sorted(pol_k[sl.k], key=lambda p: p.startup),
+            "waiting": [s.name for s in startups if s.available(sl) and s.name not in busy_s],
+            "resting": [h.name for h in hosts if h.available(sl) and h.name not in busy_h],
+        })
+    if not lunch_added and ds and ds[-1].end <= cfg.lunch_start:
+        rows.append(lunch)
+    if compact:
+        last = max((i for i, r in enumerate(rows) if r.get("tables") and (any(r["tables"]) or r["polish"])),
+                   default=-1)
+        if last < len(rows) - 1:
+            at = rows[last]["end"] if last >= 0 else None
+            rows = rows[:last + 1] + [{"lunch": False, "done": True, "at": at, "time": ""}]
+    return rows
+
+
+def attendance(cfg: EventConfig, p: Party) -> str:
+    if p.absent:
+        return "Not attending"
+    if len(p.days) == len(cfg.days):
+        return "All days"
+    return ", ".join(cfg.day_short(d) for d in sorted(p.days)) + " only"
+
+
+def startup_summary(cfg, startups, hosts, meetings, statuses, now, sep=" • ", polish=()) -> pd.DataFrame:
+    hl = {h.name: host_label(h) for h in hosts}
+    pol = defaultdict(list)
+    for p in polish:
+        pol[p.startup].append(p)
+    by_s = defaultdict(list)
+    for m in meetings:
+        by_s[m.startup].append(m)
+    recs = []
+    for s in startups:
+        ms = sorted(by_s[s.name], key=lambda m: m.k)
+        rec = {
+            "Startup Name": s.name,
+            "Attendance": attendance(cfg, s),
+            "Domain": s.domain_text,
+            "Priority": "★" if s.priority else "",
+            "Total Meetings": len(ms),
+            "No-Shows": sum(eff_status(m, cfg, statuses, now) == "No-Show" for m in ms),
+            "Eligible Hosts": sum(compatible(s, h) for h in hosts),
+            "Pitch Polishing": sep.join(f"{cfg.day_short(p.day)} {fmt(p.start)}" for p in pol[s.name]) or "-",
+        }
+        for d, dd in enumerate(cfg.days):
+            rec[f"{dd['label']} Partners"] = sep.join(
+                f"{fmt(m.start)}  {hl.get(m.host, m.host)}" for m in ms if m.day == d) or "-"
+        recs.append(rec)
+    return pd.DataFrame(recs)
+
+
+def host_summary(cfg, hosts, meetings) -> pd.DataFrame:
+    by_h = defaultdict(list)
+    for m in meetings:
+        by_h[m.host].append(m)
+    recs = []
+    for h in hosts:
+        ms = sorted(by_h[h.name], key=lambda m: m.k)
+        rec = {"Host": h.name, "Contact": h.contact, "Type": h.kind, "Total Meetings": len(ms)}
+        for d, dd in enumerate(cfg.days):
+            dm = [m for m in ms if m.day == d]
+            rec[f"{dd['label']}"] = (f"{len(dm)} meetings, {fmt(dm[0].start)} to {fmt(dm[-1].end)}"
+                                    if dm else "-")
+        rec["Startups Met"] = ", ".join(m.startup for m in ms) or "-"
+        recs.append(rec)
+    return pd.DataFrame(recs)
+
+
+def meetings_table(cfg, meetings, statuses, now, hosts=()) -> pd.DataFrame:
+    hc = {h.name: h.contact for h in hosts}
+    return pd.DataFrame([{
+        "Day": cfg.days[m.day]["label"], "Date": str(cfg.day_date(m.day) or ""),
+        "Start": fmt(m.start), "End": fmt(m.end), "Table": m.table,
+        "Startup": m.startup, "Host": m.host, "Contact": hc.get(m.host, ""),
+        "Status": eff_status(m, cfg, statuses, now),
+    } for m in meetings], columns=["Day", "Date", "Start", "End", "Table", "Startup", "Host", "Contact", "Status"])
+
+
+# --------------------------------------------------------------------------------------
+# Excel export
+# --------------------------------------------------------------------------------------
+XF = "Arial"
+C_NAVY, C_COB, C_INK, C_MUT = "18255C", "1240E0", "111827", "5A6276"
+C_LINE, C_ZONE, C_FAINT, C_BAND = "E1E6EF", "EEF2FF", "B8C0CF", "F7F9FC"
+ST_STYLE = {"Scheduled": ("EEF0F4", "4A5168"), "Ongoing": ("1240E0", "FFFFFF"),
+            "Done": ("DDF2E3", "1E7B34"), "No-Show": ("FDE2E6", "B4132D")}
+CELL_TINT = {"Ongoing": "EAF0FF", "Done": "F4F5F7", "No-Show": "FFF0F2"}
+NAME_COLORS = ["1240E0", "C2255C", "0B7A75", "B45309", "6D28D9", "0E7490", "A21CAF",
+               "3F6212", "9A3412", "1D4ED8", "BE123C", "047857", "7C3AED", "155E75"]
+
+
+def _f(size=10, bold=False, color=C_INK, italic=False) -> Font:
+    return Font(name=XF, size=size, bold=bold, color=color, italic=italic)
+
+
+def _if(size=10, bold=False, color=C_INK) -> InlineFont:
+    return InlineFont(rFont=XF, sz=size, b=bold, color=Color(rgb="FF" + color))
+
+
+def _fill(c: str) -> PatternFill:
+    return PatternFill("solid", start_color=c, end_color=c)
+
+
+def _lines(text: str, chars: float) -> int:
+    return sum(max(1, -(-len(p) // max(1, int(chars)))) for p in str(text).split("\n"))
+
+
+def startup_colors(startups) -> dict:
+    return {s.name: NAME_COLORS[i % len(NAME_COLORS)] for i, s in enumerate(startups)}
+
+
+def _table_sheet(wb, title, heading, sub, df, widths, center=(), wrap=(), bar=None):
+    w = wb.create_sheet(title)
+    w.sheet_view.showGridLines = False
+    w.column_dimensions["A"].width = 2
+    w.row_dimensions[1].height = 10
+    w.cell(2, 2, heading).font = _f(16, True, C_NAVY)
+    w.row_dimensions[2].height = 26
+    w.cell(3, 2, sub).font = _f(10, color=C_MUT)
+    hr, line = 5, Side(style="thin", color=C_LINE)
+    for j, col in enumerate(df.columns):
+        c = w.cell(hr, 2 + j, col)
+        c.fill, c.font = _fill(C_NAVY), _f(10, True, "FFFFFF")
+        c.alignment = Alignment(horizontal="center" if col in center else "left", vertical="center", indent=0 if col in center else 1)
+        w.column_dimensions[get_column_letter(2 + j)].width = widths.get(col, 16)
+    w.row_dimensions[hr].height = 26
+    for i, rec in enumerate(df.itertuples(index=False)):
+        r, maxl = hr + 1 + i, 1
+        for j, (col, v) in enumerate(zip(df.columns, rec)):
+            c = w.cell(r, 2 + j, v)
+            c.font = _f(10, bold=(j == 0), color=("B8860B" if v == "★" else C_INK))
+            c.alignment = Alignment(vertical="center", horizontal="center" if col in center else "left",
+                                    wrap_text=col in wrap, indent=0 if col in center else 1)
+            c.border = Border(bottom=line)
+            if i % 2:
+                c.fill = _fill(C_BAND)
+            if col in wrap and isinstance(v, str):
+                maxl = max(maxl, _lines(v, widths.get(col, 16) * 1.1))
+        w.row_dimensions[r].height = max(24, 13.5 * maxl + 9)
+    last = hr + len(df)
+    if bar and bar in df.columns and len(df):
+        L = get_column_letter(2 + list(df.columns).index(bar))
+        w.conditional_formatting.add(f"{L}{hr + 1}:{L}{last}", DataBarRule(
+            start_type="num", start_value=0, end_type="max", color="8FA6F5", showValue=True))
+    w.freeze_panes = w.cell(hr + 1, 3)
+    if len(df):
+        w.auto_filter.ref = f"B{hr}:{get_column_letter(1 + len(df.columns))}{last}"
+    return w, hr
+
+
+# Host colours avoid pink and yellow, which are reserved for pitch polishing
+HOST_PALETTE = ["D9EAD3", "CFE2F3", "D9D2E9", "76A5AF", "134F5C", "F6B26B", "8E7CC3", "E69138",
+                "B6D7A8", "351C75", "93C47D", "A4C2F4", "B4A7D6", "45818E", "6FA8DC", "6AA84F",
+                "3D85C6", "B45F06", "A2C4C9", "38761D"]
+POLISH_FILL = {1: "F4CCCC", 2: "FFE599"}
+POLISH_FILL_MORE = "D0E0E3"
+C_HEAD, C_GRID, C_BREAK = "2B3A67", "D9DDE5", "F1F2F5"
+
+
+def text_on(hex_fill: str) -> str:
+    r, g, b = (int(hex_fill[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    return "FFFFFF" if 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.5 else "1F2430"
+
+
+def host_colors(hosts) -> dict:
+    """Each host (organisation) keeps one colour everywhere."""
+    return {h.name: HOST_PALETTE[i % len(HOST_PALETTE)] for i, h in enumerate(hosts)}
+
+
+def polish_fill(n: int) -> str:
+    return POLISH_FILL.get(n, POLISH_FILL_MORE)
+
+
+def host_paren(h) -> str:
+    """'(Raymond - Focus Tech)' like the team's sheet."""
+    if isinstance(h, str):
+        return f"({h})"
+    return f"({h.contact} - {h.name})" if h.contact else f"({h.name})"
+
+
+def day_banner(cfg: EventConfig, d: int) -> str:
+    dd = cfg.day_date(d)
+    if not dd:
+        return f"{cfg.days[d]['label']} - Matching Schedule"
+    return f"{dd:%a, %b} {dd.day}, {dd.year} - Matching Schedule"
+
+
+def attendance_notes(cfg: EventConfig, startups) -> list[tuple[str, str]]:
+    notes = []
+    absent = [s.name for s in startups if s.absent]
+    if absent:
+        notes.append(("NOT HERE", ", ".join(absent)))
+    if len(cfg.days) > 1:
+        groups = defaultdict(list)
+        for s in startups:
+            if s.days and len(s.days) < len(cfg.days):
+                groups[tuple(sorted(s.days))].append(s.name)
+        for ds_, names in sorted(groups.items()):
+            notes.append((f"ONLY {' & '.join(cfg.day_short(d).upper() for d in ds_)}", ", ".join(names)))
+    return notes
+
+
+def build_excel(cfg, slots, startups, hosts, meetings, statuses, now, polish=()) -> bytes:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Matching Schedule"
+    ws.sheet_view.showGridLines = False
+    T = cfg.tables
+    H = {h.name: h for h in hosts}
+    hcol = host_colors(hosts)
+    L = get_column_letter
+    SE, TM = 2, 3
+    MC, SC = (lambda i: 4 + 2 * i), (lambda i: 5 + 2 * i)
+    PC, WC = 4 + 2 * T, 5 + 2 * T
+    grid = Side(style="thin", color=C_GRID)
+    box = Border(left=grid, right=grid, top=grid, bottom=grid)
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    W_MEET, W_STAT, W_POL, W_WAIT = 27, 12, 22, 48
+
+    ws.column_dimensions["A"].width = 2
+    ws.column_dimensions[L(SE)].width = 15
+    ws.column_dimensions[L(TM)].width = 15
+    for i in range(T):
+        ws.column_dimensions[L(MC(i))].width = W_MEET
+        ws.column_dimensions[L(SC(i))].width = W_STAT
+    ws.column_dimensions[L(PC)].width = W_POL
+    ws.column_dimensions[L(WC)].width = W_WAIT
+
+    ws.row_dimensions[1].height = 10
+    ws.cell(2, SE, f"{cfg.name} ({cfg.interval}-Min Slots)").font = _f(18, True, C_NAVY)
+    ws.row_dimensions[2].height = 30
+    notes = attendance_notes(cfg, startups)
+    note_col = MC(min(2, T - 1)) if T > 1 else WC
+    for j, (head, names) in enumerate(notes):
+        c = ws.cell(2 + j, note_col)
+        c.value = CellRichText(TextBlock(_if(11, True, "B4132D" if head == "NOT HERE" else C_NAVY), head + ": "),
+                               TextBlock(_if(11, True, C_NAVY), names))
+        c.alignment = Alignment(vertical="center")
+        if 2 + j > 2:
+            ws.row_dimensions[2 + j].height = 22
+    r = max(4, 2 + len(notes) + 1)
+
+    status_cells, meet_ranges, first = [], [], r
+    for d in range(len(cfg.days)):
+        ws.merge_cells(start_row=r, start_column=SE, end_row=r, end_column=WC)
+        c = ws.cell(r, SE, day_banner(cfg, d))
+        c.font, c.alignment = _f(12, True, C_NAVY), Alignment(vertical="center", indent=1)
+        for cc in range(SE, WC + 1):
+            ws.cell(r, cc).fill = _fill("E8EDF7")
+        ws.row_dimensions[r].height = 24
+        r += 1
+        heads = ([(SE, "Session"), (TM, f"Time Slot ({cfg.interval}m)")]
+                 + [x for i in range(T) for x in ((MC(i), f"Table {i + 1}"), (SC(i), f"Status {i + 1}"))]
+                 + [(PC, "POLISHING SCHEDULE"), (WC, "WAITING LIST")])
+        for c_, txt in heads:
+            c = ws.cell(r, c_, txt)
+            c.fill, c.font, c.alignment, c.border = _fill(C_HEAD), _f(10, True, "FFFFFF"), center, box
+        ws.row_dimensions[r].height = 26
+        r += 1
+
+        runs = []   # (session index, first row, last row)
+        sessions = cfg.session_list()
+        for row in day_rows(d, cfg, slots, startups, hosts, meetings, polish=polish):
+            if row["lunch"] or row.get("divider"):
+                label = "LUNCH BREAK" if row["lunch"] else str(row["label"]).upper()
+                vals = {SE: "-", TM: row["time"].replace("–", " - ")}
+                for i in range(T):
+                    vals[MC(i)], vals[SC(i)] = label, "-"
+                vals[PC], vals[WC] = label, label
+                for cc in range(SE, WC + 1):
+                    c = ws.cell(r, cc, vals.get(cc, ""))
+                    c.fill, c.border, c.alignment = _fill(C_BREAK), box, center
+                    c.font = _f(10, cc != SE and vals.get(cc) not in ("-", ""), "6B7280")
+                ws.cell(r, TM).font = _f(10, True, C_INK)
+                ws.row_dimensions[r].height = 24
+                r += 1
+                continue
+            if runs and runs[-1][0] == row["session"] and runs[-1][2] == r - 1:
+                runs[-1][2] = r
+            else:
+                runs.append([row["session"], r, r])
+            c = ws.cell(r, TM, f"{fmt(row['start'])} - {fmt(row['end'])}")
+            c.font, c.alignment, c.border = _f(10.5, True), center, box
+            need = 2
+            for i, m in enumerate(row["tables"]):
+                mc, sc = ws.cell(r, MC(i)), ws.cell(r, SC(i))
+                if m:
+                    h = H.get(m.host, m.host)
+                    fill = hcol.get(m.host, "FFFFFF")
+                    mc.value = f"{m.startup}\n{host_paren(h)}"
+                    mc.fill, mc.font = _fill(fill), _f(10, False, text_on(fill))
+                    sc.value = eff_status(m, cfg, statuses, now)
+                    sc.font = _f(10, False, "374151")
+                    status_cells.append(sc.coordinate)
+                    need = max(need, _lines(m.startup, W_MEET * 1.1) + _lines(host_paren(h), W_MEET * 1.15))
+                else:
+                    mc.value, sc.value = "-", "-"
+                    mc.font = sc.font = _f(10, color="9CA3AF")
+                mc.alignment, sc.alignment = center, center
+                mc.border = sc.border = box
+            pc = ws.cell(r, PC)
+            if row["polish"]:
+                pc.value = "\n".join(p.startup for p in row["polish"])
+                pc.fill = _fill(polish_fill(max(p.n for p in row["polish"])))
+                pc.font = _f(10.5, True, C_INK)
+                need = max(need, len(row["polish"]))
+            pc.alignment, pc.border = center, box
+            wc = ws.cell(r, WC, " • ".join(row["waiting"]) if row["waiting"] else "None (All in Sessions)")
+            wc.font = _f(9.5, False, "374151", italic=not row["waiting"])
+            wc.alignment, wc.border = Alignment(horizontal="center", vertical="center", wrap_text=True), box
+            need = max(need, _lines(wc.value, W_WAIT * 1.25))
+            ws.row_dimensions[r].height = max(34, 13 * need + 8)
+            r += 1
+        for si, a, b in runs:
+            if b > a:
+                ws.merge_cells(start_row=a, start_column=SE, end_row=b, end_column=SE)
+            sname = sessions[si] if 0 <= si < len(sessions) else None
+            c = ws.cell(a, SE, f"{sname['name']}\n({fmt(sname['start'])} - {fmt(sname['end'])})" if sname else "-")
+            c.font, c.alignment = _f(10.5, True), center
+            for rr in range(a, b + 1):
+                ws.cell(rr, SE).border = box
+        for i in range(T):
+            meet_ranges.append((L(MC(i)), L(SC(i))))
+        r += 1
+    last = r
+
+    dv = DataValidation(type="list", formula1='"' + ",".join(STATUSES) + '"', allow_blank=True,
+                        showErrorMessage=True, errorTitle="Status", error="Pick a status from the list")
+    for coord in status_cells:
+        dv.add(coord)
+    ws.add_data_validation(dv)
+    srng = " ".join(f"{L(SC(i))}{first}:{L(SC(i))}{last}" for i in range(T))
+    for s_ in ("Ongoing", "Done", "No-Show"):
+        bg, fg = ST_STYLE[s_]
+        ws.conditional_formatting.add(srng, CellIsRule(operator="equal", formula=[f'"{s_}"'],
+                                                       fill=_fill(bg), font=Font(color=fg, bold=True)))
+    for i in range(T):
+        rng = f"{L(MC(i))}{first}:{L(MC(i))}{last}"
+        ws.conditional_formatting.add(rng, FormulaRule(
+            formula=[f'${L(SC(i))}{first}="No-Show"'], fill=_fill("EDEEF1"),
+            font=Font(color="9CA3AF", strike=True)))
+    ws.freeze_panes = ws.cell(1, MC(0))
+    ws.page_setup.orientation = "landscape"
+    ws.page_setup.fitToWidth, ws.page_setup.fitToHeight = 1, 0
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+
+    sdf = startup_summary(cfg, startups, hosts, meetings, statuses, now, sep="\n", polish=polish)
+    _table_sheet(wb, "Startup Summary", "Startup summary",
+                 f"{len(meetings)} meetings across {sum(not s.absent for s in startups)} attending startups", sdf,
+                 {"Startup Name": 24, "Attendance": 16, "Domain": 18, "Priority": 9, "Total Meetings": 15,
+                  "No-Shows": 11, "Eligible Hosts": 14, "Pitch Polishing": 18,
+                  **{c_: 40 for c_ in sdf.columns if c_.endswith("Partners")}},
+                 center=("Priority", "Total Meetings", "No-Shows", "Eligible Hosts"),
+                 wrap=tuple(c_ for c_ in sdf.columns if c_.endswith("Partners")) + ("Pitch Polishing",),
+                 bar="Total Meetings")
+    hdf = host_summary(cfg, hosts, meetings)
+    w, hr = _table_sheet(wb, "Host Summary", "Host summary", f"{len(hosts)} hosts", hdf,
+                         {"Host": 26, "Contact": 18, "Type": 12, "Total Meetings": 15, "Startups Met": 60,
+                          **{d_["label"]: 26 for d_ in cfg.days}},
+                         center=("Type", "Total Meetings"), wrap=("Startups Met",), bar="Total Meetings")
+    for i, h in enumerate(hosts):
+        c = w.cell(hr + 1 + i, 2)
+        c.fill, c.font = _fill(hcol[h.name]), _f(10, True, text_on(hcol[h.name]))
+    mdf = meetings_table(cfg, meetings, statuses, now, hosts)
+    w, hr = _table_sheet(wb, "All Meetings", "All meetings", "One row per meeting. Status can be changed here too",
+                         mdf, {"Day": 9, "Date": 12, "Start": 9, "End": 9, "Table": 8, "Startup": 24,
+                               "Host": 26, "Contact": 18, "Status": 13},
+                         center=("Day", "Date", "Start", "End", "Table", "Status"))
+    if len(mdf):
+        Ls = get_column_letter(2 + list(mdf.columns).index("Status"))
+        rng = f"{Ls}{hr + 1}:{Ls}{hr + len(mdf)}"
+        dv2 = DataValidation(type="list", formula1='"' + ",".join(STATUSES) + '"', allow_blank=True)
+        dv2.add(rng)
+        w.add_data_validation(dv2)
+        for s_, (bg, fg) in ST_STYLE.items():
+            w.conditional_formatting.add(rng, CellIsRule(operator="equal", formula=[f'"{s_}"'],
+                                                         fill=_fill(bg), font=Font(color=fg, bold=True)))
+    bio = io.BytesIO()
+    wb.save(bio)
+    return bio.getvalue()
+
+
+
+# --------------------------------------------------------------------------------------
+# Sample data and file import
+# --------------------------------------------------------------------------------------
+def sample_frames() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    d0 = date.today() + timedelta(days=7)
+    days = pd.DataFrame({"Label": ["Day 1", "Day 2"], "Date": [d0, d0 + timedelta(days=1)]})
+    s = [
+        ("Voltra Energy", "Climate", "", "", "", "", True),
+        ("MediKey", "HealthTech", "", "", "", "", False),
+        ("Kanto Robotics", "Hardware", "", "", "", "", False),
+        ("Seedline Agritech", "AgriTech", "", "", "", "", False),
+        ("Parcelo", "Logistics", "", "", "", "", False),
+        ("FinchPay", "Fintech", "", "", "", "", True),
+        ("Lumen Health", "HealthTech", "", "", "", "", False),
+        ("Tidewave Marine", "Climate", "", "", "", "", False),
+        ("Glowlab Cosmetics", "K-Beauty", "", "", "", "", False),
+        ("Aster Skin", "K-Beauty", "Day 2", "", "", "", False),
+        ("Railmind", "Mobility", "", "", "16:00", "", False),
+        ("Quanta Ledger", "Fintech", "", "", "", "", False),
+        ("Brightcart", "SaaS", "", "", "", "", False),
+        ("Nimbus Grid", "Climate, Hardware", "", "", "", "", False),
+        ("Coral AI", "SaaS", "", "", "", "", True),
+        ("Haneul Foods", "FoodTech", "", "", "", "Day 1 13:00-14:00", False),
+        ("Pathwise", "EdTech", "Not here", "", "", "", False),
+        ("Ondo Mobility", "Mobility", "Day 1", "", "", "", False),
+        ("Silo Sense", "AgriTech, Hardware", "", "11:00", "", "", False),
+        ("Kite Insure", "Fintech", "", "", "", "", False),
+    ]
+    startups = pd.DataFrame(s, columns=STARTUP_COLS[:7])
+    startups["Pitch Polishing"] = True
+    startups["Max Meetings"] = None
+    h = [
+        ("Sunrise Ventures", "Grace Lim", "Investor", "", "", "", "", "K-Beauty", None),
+        ("Meridian Capital", "Daniel Ong", "Investor", "Day 2", "15:00", "17:00", "", "", None),
+        ("Halcyon Logistics", "Priya Nair", "Corporate", "", "", "", "", "K-Beauty, EdTech", None),
+        ("Orchid Bank", "Marcus Tan", "Corporate", "Day 1", "", "", "", "K-Beauty, Hardware", None),
+        ("Harbor Innovation Agency", "Mei Ling", "Agency", "", "", "", "Day 2 10:00-11:00", "", None),
+        ("Lumen Corporate Ventures", "Jason Koh", "Investor", "", "", "", "", "", 16),
+    ]
+    hosts = pd.DataFrame(h, columns=HOST_COLS)
+    return days, clean_frame(startups, "startup"), clean_frame(hosts, "host")
+
+
+def blank_frames():
+    days = pd.DataFrame({"Label": ["Day 1"], "Date": [date.today() + timedelta(days=7)]})
+    return (days, clean_frame(pd.DataFrame(columns=STARTUP_COLS), "startup"),
+            clean_frame(pd.DataFrame(columns=HOST_COLS), "host"))
+
+
+ALIASES = {
+    "name": "Name", "startup": "Name", "startup name": "Name", "company": "Name", "host": "Name",
+    "host name": "Name", "investor": "Name", "partner": "Name",
+    "domain": "Domain", "domains": "Domain", "sector": "Domain", "industry": "Domain",
+    "days": "Days", "day": "Days", "attending days": "Days", "available days": "Days",
+    "available from": "Available From", "from": "Available From", "start": "Available From",
+    "available until": "Available Until", "until": "Available Until", "to": "Available Until",
+    "cutoff": "Available Until", "end": "Available Until",
+    "blocked times": "Blocked Times", "blocked": "Blocked Times", "unavailable": "Blocked Times",
+    "restricted times": "Blocked Times",
+    "priority": "Priority", "max meetings": "Max Meetings", "max": "Max Meetings",
+    "type": "Type", "host type": "Type",
+    "contact": "Contact", "contact person": "Contact", "person": "Contact", "representative": "Contact",
+    "attendee": "Contact",
+    "excluded domains": "Excluded Domains", "excludes": "Excluded Domains", "exclude": "Excluded Domains",
+}
+
+
+def host_type(v) -> str:
+    if is_blank(v):
+        return "Investor"
+    t = norm(v)
+    for k in HOST_TYPES:
+        if t == k.lower():
+            return k
+    if t in ("vc", "cvc", "fund", "angel", "investors", "family office", "pe"):
+        return "Investor"
+    if t in ("corporate partner", "corporates", "company", "enterprise", "corp"):
+        return "Corporate"
+    if t in ("government", "gov", "agency partner", "public"):
+        return "Agency"
+    return "Other"
+
+
+def clean_frame(df: pd.DataFrame, role: str) -> pd.DataFrame:
+    cols = STARTUP_COLS if role == "startup" else HOST_COLS
+    df = df.rename(columns={c: ALIASES.get(norm(c), c) for c in df.columns})
+    df = df.loc[:, ~df.columns.duplicated()]
+    out = pd.DataFrame(index=range(len(df)))
+    for c in cols:
+        src = df[c] if c in df.columns else pd.Series([None] * len(df))
+        src = src.reset_index(drop=True)
+        if c == "Priority":
+            out[c] = src.map(to_bool).astype(bool)
+        elif c == "Max Meetings":
+            out[c] = pd.to_numeric(src, errors="coerce").astype("float64")
+        elif c in ("Available From", "Available Until"):
+            out[c] = src.map(lambda v: "" if is_blank(v) else tstr(v)).astype(object)
+        elif c == "Type":
+            out[c] = src.map(host_type).astype(object)
+        elif c == "Days":
+            out[c] = src.map(lambda v: "Not here" if isinstance(v, str) and norm(v) in ABSENT_WORDS
+                             else ("" if is_blank(v) else str(v).strip())).astype(object)
+        elif c == "Pitch Polishing":
+            out[c] = src.map(lambda v: True if is_blank(v) else to_bool(v)).astype(bool)
+        else:
+            out[c] = src.map(lambda v: "" if is_blank(v) else str(v).strip()).astype(object)
+    return out
+
+
+def read_upload(file) -> pd.DataFrame:
+    name = file.name.lower()
+    if name.endswith((".xlsx", ".xls")):
+        return pd.read_excel(file, dtype=object, keep_default_na=False, na_values=["", "#N/A", "nan", "NaN"])
+    raw = file.getvalue()
+    for enc in ("utf-8-sig", "cp949", "latin-1"):
+        try:
+            return pd.read_csv(io.BytesIO(raw), dtype=object, encoding=enc, sep=None, engine="python",
+                               keep_default_na=False, na_values=["", "#N/A", "nan", "NaN"])
+        except (UnicodeDecodeError, pd.errors.ParserError):
+            continue
+    raise ValueError("Could not read the file. Save it as UTF-8 CSV or .xlsx")
+
+
+# --------------------------------------------------------------------------------------
+# Streamlit state helpers
+# --------------------------------------------------------------------------------------
+def ss():
+    return st.session_state
+
+
+def set_frames(days, startups, hosts, cfg: dict | None = None):
+    s = ss()
+    s.days_base, s.s_base, s.h_base = days, startups, hosts
+    s.days_df, s.s_df, s.h_df = days, startups, hosts
+    s.ver = s.get("ver", 0) + 1
+    c = cfg or {}
+    s.ev_name = c.get("name", s.get("ev_name", "Smart Cities Selection Days"))
+    s.t_start = time.fromisoformat(c.get("start", "10:00"))
+    s.t_end = time.fromisoformat(c.get("end", "17:00"))
+    s.interval = int(c.get("interval", 20))
+    s.buffer = int(c.get("buffer", 0))
+    s.lunch_on = bool(c.get("lunch_on", True))
+    s.t_lunch_s = time.fromisoformat(c.get("lunch_start", "12:00"))
+    s.t_lunch_e = time.fromisoformat(c.get("lunch_end", "13:00"))
+    s.tables = int(c.get("tables", 6))
+    s.tz = c.get("tz", "Asia/Singapore")
+    s.sessions_txt = c.get("sessions", "Session A 10:00-12:00; Session B 13:00-15:00; Session C 15:00-17:00")
+    s.pol_on = bool(c.get("pol_on", True))
+    s.pol_days = list(c.get("pol_days", list(days["Label"]) if len(days) else []))
+    s.t_pol_s = time.fromisoformat(c.get("pol_start", "10:00"))
+    s.t_pol_e = time.fromisoformat(c.get("pol_end", "17:00"))
+    s.pol_cap = int(c.get("pol_cap", 1))
+
+
+def init_state():
+    s = ss()
+    if "init" in s:
+        return
+    s.init = True
+    s.result = None
+    s.statuses = {}
+    s.auto_refresh = True
+    set_frames(*sample_frames())
+
+
+def current_cfg() -> EventConfig:
+    s = ss()
+    days = []
+    for _, r in s.days_df.reset_index(drop=True).iterrows():
+        lab = "" if is_blank(r.get("Label")) else str(r.get("Label")).strip()
+        if not lab:
+            lab = f"Day {len(days) + 1}"
+        dv = r.get("Date")
+        days.append({"label": lab, "date": "" if is_blank(dv) else str(pd.Timestamp(dv).date())})
+    if not days:
+        days = [{"label": "Day 1", "date": ""}]
+    tm = lambda t: t.hour * 60 + t.minute
+    try:
+        sessions, s.sess_err = parse_sessions(s.get("sessions_txt", "")), None
+    except ValueError as e:
+        sessions, s.sess_err = [], str(e)
+    labels = [d["label"] for d in days]
+    pol_days = [labels.index(x) for x in s.get("pol_days", []) if x in labels] if s.get("pol_on") else []
+    return EventConfig(
+        name=s.ev_name or "Business Matching", days=days, start=tm(s.t_start), end=tm(s.t_end),
+        interval=int(s.interval), buffer=int(s.buffer),
+        lunch_start=tm(s.t_lunch_s) if s.lunch_on else None,
+        lunch_end=tm(s.t_lunch_e) if s.lunch_on else None,
+        tables=int(s.tables), tz=s.tz, sessions=sessions, pol_days=pol_days,
+        pol_start=tm(s.t_pol_s), pol_end=tm(s.t_pol_e), pol_cap=int(s.pol_cap))
+
+
+def frames_hash(cfg: EventConfig, sdf: pd.DataFrame, hdf: pd.DataFrame) -> str:
+    blob = json.dumps([asdict(cfg), sdf.to_dict("records"), hdf.to_dict("records")], default=str)
+    return hashlib.sha1(blob.encode()).hexdigest()
+
+
+def project_json() -> str:
+    s = ss()
+    cfg = current_cfg()
+    return json.dumps({
+        "app": APP_TITLE, "version": 1,
+        "config": {"name": cfg.name, "start": fmt(cfg.start), "end": fmt(cfg.end),
+                   "interval": cfg.interval, "buffer": cfg.buffer, "lunch_on": bool(s.lunch_on),
+                   "lunch_start": s.t_lunch_s.strftime("%H:%M"), "lunch_end": s.t_lunch_e.strftime("%H:%M"),
+                   "tables": cfg.tables, "tz": cfg.tz, "sessions": s.sessions_txt,
+                   "pol_on": bool(s.pol_on), "pol_days": list(s.pol_days),
+                   "pol_start": s.t_pol_s.strftime("%H:%M"), "pol_end": s.t_pol_e.strftime("%H:%M"),
+                   "pol_cap": int(s.pol_cap)},
+        "days": cfg.days,
+        "startups": s.s_df.to_dict("records"),
+        "hosts": s.h_df.to_dict("records"),
+        "result": s.result and {k: v for k, v in s.result.items() if k in ("meetings", "polish", "packing", "status", "hash")},
+        "statuses": s.statuses,
+    }, default=str, indent=1)
+
+
+# Callbacks (run before the script body, so they may reset widget state)
+def cb_sample():
+    set_frames(*sample_frames())
+    ss().result, ss().statuses = None, {}
+
+
+def cb_blank():
+    set_frames(*blank_frames())
+    ss().ev_name = "New Matching Event"
+    ss().result, ss().statuses = None, {}
+
+
+def cb_upload(role: str):
+    f = ss().get(f"up_{role}")
+    if not f:
+        return
+    try:
+        df = clean_frame(read_upload(f), role)
+        df = df[[not is_blank(v) for v in df["Name"]]].reset_index(drop=True)
+    except Exception as e:  # noqa: BLE001
+        ss().flash = ("error", f"Could not import {f.name}: {e}")
+        return
+    if role == "startup":
+        ss().s_base = ss().s_df = df
     else:
-        st.info("먼저 [스케줄 생성 및 최적화] 탭에서 생성 버튼을 눌러주세요.")
+        ss().h_base = ss().h_df = df
+    ss().ver += 1
+    ss().flash = ("success", f"Imported {len(df)} rows from {f.name}")
+
+
+def cb_project():
+    f = ss().get("up_project")
+    if not f:
+        return
+    try:
+        data = json.loads(f.getvalue().decode("utf-8"))
+        days = pd.DataFrame({"Label": [d["label"] for d in data["days"]],
+                             "Date": [date.fromisoformat(d["date"]) if d.get("date") else None
+                                      for d in data["days"]]})
+        set_frames(days, clean_frame(pd.DataFrame(data.get("startups", [])), "startup"),
+                   clean_frame(pd.DataFrame(data.get("hosts", [])), "host"), data.get("config"))
+        res = data.get("result")
+        if res and res.get("meetings"):
+            cfg = current_cfg()
+            res["cfg"] = asdict(cfg)
+            res["s_df"], res["h_df"] = ss().s_df, ss().h_df
+            res["hash"] = frames_hash(cfg, ss().s_df, ss().h_df)
+            res["id"] = int(_time.time())
+            res.setdefault("message", "Loaded from project file")
+            res.setdefault("wall", 0.0)
+            res.setdefault("issues", [])
+            ss().result = res
+        else:
+            ss().result = None
+        ss().statuses = data.get("statuses", {}) or {}
+        ss().flash = ("success", f"Loaded project {f.name}")
+    except Exception as e:  # noqa: BLE001
+        ss().flash = ("error", f"Could not load project: {e}")
+
+
+def cb_status_edit(key: str, ids: list[str]):
+    edits = ss()[key].get("edited_rows", {})
+    for r, ch in edits.items():
+        if "Set Status" in ch and r < len(ids):
+            v = ch["Set Status"]
+            if v in STATUSES:
+                ss().statuses[ids[r]] = v
+            else:
+                ss().statuses.pop(ids[r], None)
+
+
+# --------------------------------------------------------------------------------------
+# UI
+# --------------------------------------------------------------------------------------
+CSS = """
+<style>
+.bm-wrap{overflow-x:auto;border:1px solid rgba(128,128,128,.28);border-radius:12px}
+.bm{border-collapse:separate;border-spacing:0;width:100%;font-size:13px;line-height:1.3}
+.bm th{background:rgba(18,64,224,.10);text-align:left;padding:9px 8px;font-weight:600;white-space:nowrap;
+ border-bottom:1px solid rgba(128,128,128,.28)}
+.bm td{padding:6px;border-bottom:1px solid rgba(128,128,128,.16);border-left:1px solid rgba(128,128,128,.12);
+ vertical-align:top;min-width:150px}
+.bm td.t{min-width:96px;white-space:nowrap;font-weight:600;font-variant-numeric:tabular-nums;border-left:0;padding:10px 8px}
+.bm tr.now td{background:rgba(18,64,224,.08)}
+.bm tr.now td.t:after{content:"NOW";display:block;margin-top:4px;width:max-content;font-size:10px;color:#fff;
+ background:#1240e0;border-radius:99px;padding:1px 7px}
+.bm tr.lunch td{background:rgba(128,128,128,.10);opacity:.8;font-weight:600;text-align:center}
+.bm tr.lunch td.t{text-align:left}
+.bm .m{border:1px solid rgba(128,128,128,.35);border-radius:9px;padding:6px 8px}
+.bm .m b{display:block;font-weight:600}
+.bm .m .h{display:block;opacity:.72;font-size:12px;margin-top:2px}
+.bm .p{display:inline-block;margin-top:6px;border-radius:99px;padding:1px 8px;font-size:11px;font-weight:600}
+.bm .s-Scheduled .p{background:rgba(128,128,128,.18)}
+.bm .s-Ongoing{border:2px solid #1240e0}
+.bm .s-Ongoing .p{background:#1240e0;color:#fff}
+.bm .s-Done{opacity:.6}
+.bm .s-Done .p{background:rgba(43,138,62,.22);color:#2b8a3e}
+.bm .s-No-Show b{text-decoration:line-through;opacity:.7}
+.bm .s-No-Show .p{background:rgba(200,16,46,.16);color:#d6334f}
+.bm .e{opacity:.3;text-align:center;padding-top:16px}
+.bm td.w{min-width:240px;font-size:12px;line-height:1.55}
+.bm td.r{min-width:200px;opacity:.75}
+.bm .dot{opacity:.35;margin:0 6px}
+.bm tr.lunch td{font-style:italic}
+.bm .star{color:#d6a100}
+.bm td.sess{min-width:96px;font-weight:700;text-align:center;vertical-align:middle;border-left:0}
+.bm td.sess small{font-weight:500;opacity:.7}
+.bm .m{text-align:center;border:0}
+.bm .m .p{background:rgba(255,255,255,.75)!important;color:#1f2430!important}
+.bm .s-Ongoing{outline:3px solid #1240e0;outline-offset:1px}
+.bm .s-Ongoing .p{background:#1240e0!important;color:#fff!important}
+.bm .s-Done .p{background:#ddf2e3!important;color:#1e7b34!important}
+.bm .s-No-Show{background:#eceef2!important;color:#9ca3af!important}
+.bm .s-No-Show .p{background:#fde2e6!important;color:#b4132d!important}
+.bm td.pc{min-width:150px}
+.bm .pol{border-radius:9px;padding:8px;text-align:center;font-weight:700;color:#1f2430;margin-bottom:4px}
+.bm .pol small{display:block;font-weight:500;opacity:.65;font-size:11px}
+.bm td.w{text-align:center}
+.notes{display:flex;flex-wrap:wrap;gap:6px 22px;margin:0 0 10px;font-size:14px}
+.notes .note b{color:#c8102e}
+</style>
+"""
+
+
+def esc(s) -> str:
+    return (str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            .replace('"', "&quot;"))
+
+
+def grid_html(day, cfg, slots, startups, hosts, meetings, statuses, now, polish=()) -> str:
+    T = cfg.tables
+    pri = {s.name for s in startups if s.priority}
+    H = {h.name: h for h in hosts}
+    hcol = host_colors(hosts)
+    today = cfg.day_date(day) == now.date()
+    nm = now.hour * 60 + now.minute
+    sessions = cfg.session_list()
+    head = ("<tr><th>Session</th><th>Time</th>" + "".join(f"<th>Table {i}</th>" for i in range(1, T + 1))
+            + "<th>Pitch polishing</th><th>Waiting list</th></tr>")
+    rows = day_rows(day, cfg, slots, startups, hosts, meetings, polish=polish)
+    # how many consecutive slot rows each session spans (for the merged Session cell)
+    span, i = {}, 0
+    while i < len(rows):
+        if rows[i].get("tables") is not None:
+            j = i
+            while j + 1 < len(rows) and rows[j + 1].get("tables") is not None \
+                    and rows[j + 1]["session"] == rows[i]["session"]:
+                j += 1
+            span[i] = j - i + 1
+            i = j + 1
+        else:
+            i += 1
+    body = []
+    for ri, row in enumerate(rows):
+        if row["lunch"] or row.get("divider"):
+            label = "Lunch break" if row["lunch"] else row["label"]
+            t = row["time"].replace("–", " – ")
+            body.append(f'<tr class="lunch"><td class="t">-</td><td class="t">{t}</td>'
+                        f'<td colspan="{T + 2}">{esc(label)}</td></tr>')
+            continue
+        cls = ' class="now"' if today and row["start"] <= nm < row["end"] else ""
+        sess = ""
+        if ri in span:
+            sx = sessions[row["session"]] if 0 <= row["session"] < len(sessions) else None
+            lab = (f'{esc(sx["name"])}<br><small>{fmt(sx["start"])}–{fmt(sx["end"])}</small>' if sx else "-")
+            sess = f'<td class="sess" rowspan="{span[ri]}">{lab}</td>'
+        cells = []
+        for m in row["tables"]:
+            if m is None:
+                cells.append('<td><div class="e">-</div></td>')
+                continue
+            s_ = eff_status(m, cfg, statuses, now)
+            bg = hcol.get(m.host, "FFFFFF")
+            star = "★ " if m.startup in pri else ""
+            cells.append(f'<td><div class="m s-{s_}" style="background:#{bg};color:#{text_on(bg)}">'
+                         f'<b>{star}{esc(m.startup)}</b><span class="h">{esc(host_paren(H.get(m.host, m.host)))}</span>'
+                         f'<span class="p">{s_}</span></div></td>')
+        pol = "".join(f'<div class="pol" style="background:#{polish_fill(p.n)}">{esc(p.startup)}'
+                      f'<small>{"1st" if p.n == 1 else "2nd" if p.n == 2 else f"{p.n}th"}</small></div>'
+                      for p in row["polish"])
+        wait = " • ".join(esc(n) for n in row["waiting"]) or "<i>None (all in sessions)</i>"
+        body.append(f'<tr{cls}>{sess}<td class="t">{fmt(row["start"])}–{fmt(row["end"])}</td>{"".join(cells)}'
+                    f'<td class="pc">{pol}</td><td class="w">{wait}</td></tr>')
+    notes = "".join(f'<span class="note"><b>{esc(h)}:</b> {esc(n)}</span>' for h, n in attendance_notes(cfg, startups))
+    notes = f'<div class="notes">{notes}</div>' if notes else ""
+    return (CSS + notes + f'<div class="bm-wrap"><table class="bm"><thead>{head}</thead>'
+            f'<tbody>{"".join(body)}</tbody></table></div>')
+
+
+def setup_tab():
+    s = ss()
+    st.subheader("Event")
+    c1, c2, c3 = st.columns([1.2, 1, 1])
+    with c1:
+        st.text_input("Event name", key="ev_name")
+        s.days_df = st.data_editor(
+            s.days_base, key=f"days_{s.ver}", num_rows="dynamic", hide_index=True,
+            column_config={"Label": st.column_config.TextColumn("Day", required=True),
+                           "Date": st.column_config.DateColumn("Date", format="ddd D MMM YYYY",
+                                                               help="Used for live status")})
+    with c2:
+        a, b = st.columns(2)
+        a.time_input("Day starts", key="t_start", step=timedelta(minutes=5))
+        b.time_input("Day ends", key="t_end", step=timedelta(minutes=5))
+        a.number_input("Meeting length (min)", 5, 180, step=5, key="interval")
+        b.number_input("Gap between meetings (min)", 0, 60, step=5, key="buffer")
+        st.number_input("Tables (concurrent meetings)", 1, 200, step=1, key="tables")
+    with c3:
+        st.checkbox("Lunch break", key="lunch_on")
+        a, b = st.columns(2)
+        a.time_input("Lunch from", key="t_lunch_s", step=timedelta(minutes=5), disabled=not s.lunch_on)
+        b.time_input("Lunch until", key="t_lunch_e", step=timedelta(minutes=5), disabled=not s.lunch_on)
+        st.selectbox("Time zone", TIMEZONES, key="tz", help="Drives the live Ongoing and Done status")
+
+    cfg = current_cfg()
+    slots = build_slots(cfg)
+    per_day = len(slots) // max(1, len(cfg.days))
+    if slots:
+        times = " ".join(fmt(x.start) for x in slots if x.day == 0)
+        st.caption(f"{per_day} slots per day × {len(cfg.days)} day(s) = {len(slots)} slots. Day 1 starts at {times}")
+    else:
+        st.warning("No meeting slot fits. Check the day start, end and meeting length.")
+
+    st.subheader("Sessions and pitch polishing")
+    c1, c2 = st.columns([1, 1.4])
+    with c1:
+        st.text_input("Sessions", key="sessions_txt",
+                      help="Groups the timeline like your sheet. Leave blank for before and after lunch")
+        if s.get("sess_err"):
+            st.error(s.sess_err)
+        else:
+            st.caption(" · ".join(f"{x['name']} {fmt(x['start'])}–{fmt(x['end'])}" for x in cfg.session_list()))
+    with c2:
+        st.checkbox("Run pitch polishing alongside the meetings", key="pol_on",
+                    help="Each startup gets one polishing slot per selected day and has no meeting in that slot")
+        s.pol_days = [x for x in s.get("pol_days", []) if x in cfg.labels]
+        a, b, c, d = st.columns([1.4, 1, 1, 0.8])
+        a.multiselect("Days", cfg.labels, key="pol_days", disabled=not s.pol_on)
+        b.time_input("From", key="t_pol_s", step=timedelta(minutes=5), disabled=not s.pol_on)
+        c.time_input("Until", key="t_pol_e", step=timedelta(minutes=5), disabled=not s.pol_on)
+        d.number_input("Coaches", 1, 20, key="pol_cap", disabled=not s.pol_on,
+                       help="How many startups can be polished at the same time")
+
+    st.divider()
+    st.subheader("Startups")
+    u1, u2 = st.columns([3, 1])
+    u1.file_uploader("Import startups (CSV or Excel)", type=["csv", "xlsx", "xls"], key="up_startup",
+                     on_change=cb_upload, args=("startup",), label_visibility="collapsed")
+    u2.download_button("Startup template", sample_frames()[1].to_csv(index=False).encode("utf-8-sig"),
+                       "startups_template.csv", "text/csv")
+    s.s_df = st.data_editor(
+        s.s_base, key=f"s_{s.ver}", num_rows="dynamic", hide_index=True,
+        column_config={
+            "Name": st.column_config.TextColumn(required=True, width="medium"),
+            "Domain": st.column_config.TextColumn(help="One or more, comma separated. Hosts can exclude domains"),
+            "Days": st.column_config.TextColumn(
+                help="Blank = all days. Day 2 or 1,2 for some days. Not here = not attending"),
+            "Available From": st.column_config.TextColumn(help="HH:MM. Blank = day start", validate=TIME_VALID),
+            "Available Until": st.column_config.TextColumn(
+                help="HH:MM cutoff. No meeting may end after this", validate=TIME_VALID),
+            "Blocked Times": st.column_config.TextColumn(
+                help="Restricted windows, e.g. Day 1 14:00-15:00; 16:20-16:40", width="medium"),
+            "Priority": st.column_config.CheckboxColumn(help="Gets more meetings when slots are scarce"),
+            "Pitch Polishing": st.column_config.CheckboxColumn(default=True,
+                                                               help="Gets a pitch polishing slot each polishing day"),
+            "Max Meetings": st.column_config.NumberColumn(min_value=0, step=1, format="%d",
+                                                          help="Blank = no limit"),
+        })
+
+    st.subheader("Hosts (investors, corporates, agencies)")
+    u1, u2 = st.columns([3, 1])
+    u1.file_uploader("Import hosts (CSV or Excel)", type=["csv", "xlsx", "xls"], key="up_host",
+                     on_change=cb_upload, args=("host",), label_visibility="collapsed")
+    u2.download_button("Host template", sample_frames()[2].to_csv(index=False).encode("utf-8-sig"),
+                       "hosts_template.csv", "text/csv")
+    s.h_df = st.data_editor(
+        s.h_base, key=f"h_{s.ver}", num_rows="dynamic", hide_index=True,
+        column_config={
+            "Name": st.column_config.TextColumn("Organisation", required=True, width="medium"),
+            "Contact": st.column_config.TextColumn(help="Person attending, e.g. Raymond"),
+            "Type": st.column_config.SelectboxColumn(options=HOST_TYPES, default="Investor"),
+            "Days": st.column_config.TextColumn(help="Blank = all days. Day 1 for one day. Not here = not attending"),
+            "Available From": st.column_config.TextColumn(help="HH:MM", validate=TIME_VALID),
+            "Available Until": st.column_config.TextColumn(help="HH:MM", validate=TIME_VALID),
+            "Blocked Times": st.column_config.TextColumn(help="e.g. Day 2 10:00-11:00", width="medium"),
+            "Excluded Domains": st.column_config.TextColumn(
+                help="Never matched with startups in these domains, e.g. K-Beauty, Hardware", width="medium"),
+            "Max Meetings": st.column_config.NumberColumn(min_value=0, step=1, format="%d"),
+        })
+
+    st.divider()
+    a, b, c, d = st.columns(4)
+    a.button("Load sample event", on_click=cb_sample)
+    b.button("Start blank", on_click=cb_blank)
+    c.download_button("Save project (.json)", project_json(), "bizmatch_project.json", "application/json")
+    d.file_uploader("Open project", type=["json"], key="up_project", on_change=cb_project,
+                    label_visibility="collapsed")
+
+
+def generate_tab():
+    s = ss()
+    cfg = current_cfg()
+    slots = build_slots(cfg)
+    startups, e1 = parse_parties(s.s_df, "startup", cfg.labels)
+    hosts, e2 = parse_parties(s.h_df, "host", cfg.labels)
+    errors = e1 + e2
+    if errors:
+        st.error("Fix these before generating:\n\n" + "\n".join(f"- {e}" for e in errors))
+
+    attending = [x for x in startups if not x.absent]
+    pairs = sum(compatible(a, b) for a in attending for b in hosts if not b.absent)
+    peak = max((sum(h.available(x) for h in hosts) for x in slots), default=0)
+    c = st.columns(5)
+    c[0].metric("Startups attending", len(attending),
+                f"{len(startups) - len(attending)} not here" if len(startups) > len(attending) else None,
+                delta_color="off")
+    c[1].metric("Hosts", len(hosts))
+    c[2].metric("Slots", len(slots))
+    c[3].metric("Eligible pairs", pairs)
+    c[4].metric("Polishing days", len(cfg.pol_days) if cfg.pol_days else "Off")
+
+    st.subheader("Rules")
+    default = "front" if peak <= cfg.tables else "block"
+    if s.get("packing_mode") not in PACKING:
+        s.packing_mode = default
+    a, b = st.columns([1.3, 1])
+    with a:
+        st.radio("Host slot packing", list(PACKING), format_func=PACKING.get, key="packing_mode")
+        if s.packing_mode == "front" and peak > cfg.tables:
+            st.warning(f"Up to {peak} hosts are available at the same time but there are only {cfg.tables} "
+                       "tables, so they cannot all start at their first slot. Front-packed will leave some "
+                       "hosts empty. Use Contiguous block instead.")
+    with b:
+        st.slider("Priority weight", 1, 5, 3, key="pw",
+                  help="How strongly priority startups are favoured when slots are scarce")
+        st.slider("Solver time limit (seconds)", 5, 120, 20, key="tl")
+        st.checkbox("Spread meetings fairly across hosts too", True, key="hf")
+        st.checkbox("Prefer earlier slots", True, key="pe")
+
+    keep_live = False
+    if s.result and s.result.get("meetings"):
+        keep_live = st.checkbox(
+            "Re-plan mode: keep meetings already Ongoing, Done or No-Show and reschedule the rest",
+            value=False, key="keep_live")
+
+    st.caption("Always enforced: each startup and host meet at most once, nobody is double booked, "
+               "tables are never over capacity, availability, cutoffs, blocked times and domain "
+               "exclusions are respected.")
+    go = st.button("Generate schedule", type="primary",
+                   disabled=bool(errors) or not startups or not hosts or not slots)
+    if go:
+        fixed, fixed_pol = [], []
+        if keep_live:
+            old_cfg = EventConfig(**s.result["cfg"])
+            now = now_for(old_cfg)
+            for md in s.result["meetings"]:
+                m = Meeting(**md)
+                if eff_status(m, old_cfg, s.statuses, now) in LOCK_STATUSES:
+                    fixed.append((m.startup, m.host, m.day, m.start))
+            for pd_ in s.result.get("polish", []):
+                p_ = Polish(**pd_)
+                dd = old_cfg.day_date(p_.day)
+                if dd and (dd < now.date() or (dd == now.date() and p_.start <= now.hour * 60 + now.minute)):
+                    fixed_pol.append((p_.startup, p_.day, p_.start))
+        settings = SolverSettings(packing=s.packing_mode, time_limit=s.tl, priority_weight=s.pw,
+                                  host_fairness=s.hf, prefer_early=s.pe)
+        with st.spinner("Optimising with OR-Tools CP-SAT…"):
+            res = solve_schedule(cfg, slots, startups, hosts, settings, fixed, fixed_pol)
+        if res.meetings:
+            s.result = {
+                "id": int(_time.time() * 1000), "meetings": [asdict(m) for m in res.meetings],
+                "polish": [asdict(p_) for p_ in res.polish],
+                "cfg": asdict(cfg), "s_df": s.s_df.copy(), "h_df": s.h_df.copy(),
+                "packing": s.packing_mode, "status": res.status, "message": res.message,
+                "wall": res.wall, "n_vars": res.n_vars, "kept": res.kept,
+                "dropped": res.dropped_fixed, "hash": frames_hash(cfg, s.s_df, s.h_df),
+                "issues": validate(cfg, slots, startups, hosts, res.meetings, s.packing_mode, res.polish),
+            }
+            pol_txt = f" and {len(res.polish)} pitch polishing sessions" if res.polish else ""
+            st.success(f"{res.message} {len(res.meetings)} meetings{pol_txt} in {res.wall:.1f}s. "
+                       "Open the Results tab.")
+            if res.dropped_fixed:
+                st.warning("These kept meetings no longer fit the setup and were dropped: "
+                           + "; ".join(res.dropped_fixed))
+        else:
+            st.error(f"{res.status}: {res.message}")
+
+    if s.result:
+        r = s.result
+        st.caption(f"Last run: {r['status']} · {len(r['meetings'])} meetings · "
+                   f"{r.get('wall', 0):.1f}s · {r.get('n_vars', 0):,} decision variables")
+
+
+def results_tab():
+    s = ss()
+    r = s.result
+    if not r or not r.get("meetings"):
+        st.info("Generate a schedule first.")
+        return
+    cfg = EventConfig(**r["cfg"])
+    slots = build_slots(cfg)
+    startups, _ = parse_parties(r["s_df"], "startup", cfg.labels)
+    hosts, _ = parse_parties(r["h_df"], "host", cfg.labels)
+    meetings = [Meeting(**m) for m in r["meetings"]]
+    polish = [Polish(**p) for p in r.get("polish", [])]
+    now = now_for(cfg)
+
+    if r.get("hash") and r["hash"] != frames_hash(current_cfg(), s.s_df, s.h_df):
+        st.warning("Setup changed since this schedule was generated. Generate again to apply the changes.")
+    issues = r.get("issues", [])
+    if issues:
+        st.error("Constraint check found problems:\n\n" + "\n".join(f"- {i}" for i in issues[:20]))
+    else:
+        st.success("Verified: no duplicate pairs, no double booking, table capacity, availability, cutoffs, "
+                   "blocked times, domain exclusions" + (", pitch polishing" if polish else "")
+                   + (" and gap-free host schedules" if r.get("packing") in ("front", "block") else ""))
+
+    counts = defaultdict(int)
+    for m in meetings:
+        counts[m.startup] += 1
+    att = [x for x in startups if not x.absent]
+    c = st.columns(5)
+    c[0].metric("Meetings", len(meetings))
+    c[1].metric("Startups with meetings", f"{sum(1 for x in att if counts[x.name])}/{len(att)}")
+    c[2].metric("Avg per startup", f"{len(meetings) / max(1, len(att)):.1f}")
+    c[3].metric("Pitch polishing", len(polish) if polish else "Off")
+    c[4].metric("Solver", r["status"].title())
+
+    st.toggle("Live auto refresh (30s)", key="auto_refresh",
+              help="Statuses follow the clock on each event day. Manual statuses always win.")
+    day = st.radio("Day", list(range(len(cfg.days))), format_func=cfg.day_title, horizontal=True, key="day_sel")
+
+    @st.fragment(run_every=30 if s.auto_refresh else None)
+    def live_grid():
+        nw = now_for(cfg)
+        dm = [m for m in meetings if m.day == day]
+        cnt = defaultdict(int)
+        for m in dm:
+            cnt[eff_status(m, cfg, s.statuses, nw)] += 1
+        cols = st.columns(5)
+        cols[0].markdown(f"**Now** {nw.strftime('%H:%M')} ({cfg.tz})")
+        for i, k in enumerate(STATUSES, 1):
+            cols[i].markdown(f"**{cnt[k]}** {k}")
+        st.html(grid_html(day, cfg, slots, startups, hosts, meetings, s.statuses, nw, polish))
+
+    live_grid()
+
+    with st.expander("Live status board: mark Ongoing, Done or No-Show", expanded=False):
+        dm = [m for m in meetings if m.day == day]
+        ids = [m.mid for m in dm]
+        df = pd.DataFrame([{
+            "Time": f"{fmt(m.start)}–{fmt(m.end)}", "Table": m.table, "Startup": m.startup, "Host": m.host,
+            "Set Status": s.statuses.get(m.mid, "Auto"), "Showing": eff_status(m, cfg, s.statuses, now),
+        } for m in dm])
+        key = f"live_{r['id']}_{day}"
+        st.data_editor(df, key=key, hide_index=True, disabled=["Time", "Table", "Startup", "Host", "Showing"],
+                       on_change=cb_status_edit, args=(key, ids),
+                       column_config={"Set Status": st.column_config.SelectboxColumn(
+                           options=STATUS_CHOICES, required=True,
+                           help="Auto follows the clock. Pick No-Show when someone does not turn up")})
+
+    st.subheader("Startup summary")
+    st.dataframe(startup_summary(cfg, startups, hosts, meetings, s.statuses, now, polish=polish), hide_index=True)
+    with st.expander("Host summary"):
+        st.dataframe(host_summary(cfg, hosts, meetings), hide_index=True)
+
+    stamp = now.strftime("%Y%m%d_%H%M")
+    a, b = st.columns(2)
+    a.download_button("Download Excel (.xlsx)",
+                      build_excel(cfg, slots, startups, hosts, meetings, s.statuses, now, polish),
+                      f"matching_schedule_{stamp}.xlsx",
+                      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary")
+    b.download_button("Download meetings (.csv)",
+                      meetings_table(cfg, meetings, s.statuses, now, hosts).to_csv(index=False).encode("utf-8-sig"),
+                      f"meetings_{stamp}.csv", "text/csv")
+
+
+def main():
+    st.set_page_config(page_title=APP_TITLE, page_icon="🗓️", layout="wide")
+    init_state()
+    st.title(APP_TITLE)
+    st.caption("1:1 business matching schedules, optimised with Google OR-Tools CP-SAT")
+    flash = ss().pop("flash", None)
+    if flash:
+        getattr(st, flash[0])(flash[1])
+    t1, t2, t3 = st.tabs(["1. Event & Participants", "2. Generate", "3. Results & Live Board"])
+    with t1:
+        setup_tab()
+    with t2:
+        generate_tab()
+    with t3:
+        results_tab()
+
+
+if __name__ == "__main__":
+    main()
