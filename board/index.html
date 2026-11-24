@@ -124,7 +124,10 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
 
   const $ = (sel) => document.querySelector(sel);
   const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  const fmt = (m) => String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
+  const fmt = (m) => {
+    const t = Math.round(m * 60), h = Math.floor(t / 3600), mi = Math.floor((t % 3600) / 60), sec = t % 60;
+    return String(h).padStart(2, "0") + ":" + String(mi).padStart(2, "0") + (sec ? ":" + String(sec).padStart(2, "0") : "");
+  };
   const clone = (x) => JSON.parse(JSON.stringify(x));
   const slotOf = (k) => D.slotByK[k];
 
@@ -343,9 +346,10 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
     while (i < D.rows.length) {
       if (D.rows[i].kind === "slot") { let j = i; while (j + 1 < D.rows.length && D.rows[j + 1].kind === "slot" && D.rows[j + 1].session === D.rows[i].session) j++; spans[i] = j - i + 1; i = j + 1; } else i++;
     }
-    let head = "<tr><th>Session</th><th>Time</th>";
-    for (let t = 1; t <= D.tables; t++) head += "<th>Table " + t + "</th>";
-    head += (D.polOn ? "<th>Pitch polishing</th>" : "") + "<th>Waiting list</th></tr>";
+    const N = D.names || {};
+    let head = "<tr><th>" + esc(N.session || "Session") + "</th><th>" + esc(N.time || "Time") + "</th>";
+    for (let t = 1; t <= D.tables; t++) head += "<th>" + esc(N.table || "Table") + " " + t + "</th>";
+    head += (D.polOn ? "<th>" + esc(N.polish || "Pitch polishing") + "</th>" : "") + "<th>" + esc(N.waiting || "Waiting list") + "</th></tr>";
     let body = "";
     D.rows.forEach((r, ri) => {
       const cols = D.tables + (D.polOn ? 4 : 3);
@@ -556,7 +560,7 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
       day: data.day, tables: data.tables, tz: data.tz, date: data.date, rows: data.rows, sessions: data.sessions,
       ks: data.rows.filter((r) => r.kind === "slot").map((r) => r.k), slotByK: {}, startups: {}, hosts: {},
       polOk: toSet(data.polOk), polCap: data.polCap || 1, polOn: !!data.polOn, polPrior: data.polPrior || {}, notes: data.notes || [],
-      maxHeight: data.maxHeight || 900,
+      maxHeight: data.maxHeight || 900, names: data.names || {},
     };
     data.rows.forEach((r) => { if (r.kind === "slot") D.slotByK[r.k] = r; });
     data.startups.forEach((s) => (D.startups[s.name] = { avail: toSet(s.avail), priority: s.priority, presenter: s.presenter || "" }));

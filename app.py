@@ -48,6 +48,8 @@ PACKING = {
 }
 STARTUP_COLS = ["Name", "Presenter", "Domain", "Days", "Available From", "Available Until",
                 "Blocked Times", "Priority", "Pitch Polishing", "Max Meetings"]
+DEFAULT_NAMES = {"session": "Session", "time": "Time Slot", "table": "Table", "status": "Status",
+                 "polish": "POLISHING SCHEDULE", "waiting": "WAITING LIST"}
 ABSENT_WORDS = ("none", "no", "absent", "not here", "not attending", "cancelled", "canceled",
                 "x", "dropped", "withdrawn")
 HOST_COLS = ["Name", "Contact", "Type", "Days", "Available From", "Available Until",
@@ -100,8 +102,12 @@ def to_min(v) -> int | None:
     return h * 60 + mi
 
 
-def fmt(m: int) -> str:
-    return f"{m // 60:02d}:{m % 60:02d}"
+def fmt(m: float) -> str:
+    """Minutes since midnight -> 'HH:MM' (or 'HH:MM:SS' when a gap has seconds)."""
+    t = int(round(m * 60))
+    h, rem = divmod(t, 3600)
+    mi, sec = divmod(rem, 60)
+    return f"{h:02d}:{mi:02d}" + (f":{sec:02d}" if sec else "")
 
 
 def tstr(v) -> str:
@@ -205,6 +211,7 @@ class EventConfig:
     pol_start: int | None = None
     pol_end: int | None = None
     pol_cap: int = 1                                  # startups polished at the same time
+    names: dict = field(default_factory=dict)         # custom column names for the schedule
 
     @property
     def labels(self) -> list[str]:
@@ -227,6 +234,9 @@ class EventConfig:
     def day_title(self, d: int) -> str:
         dd = self.day_date(d)
         return f"{self.days[d]['label']}" + (f" · {dd.strftime('%a %d %b %Y')}" if dd else "")
+
+    def nm(self, key: str) -> str:
+        return (self.names or {}).get(key) or DEFAULT_NAMES[key]
 
     def day_short(self, d: int) -> str:
         dd = self.day_date(d)
@@ -362,15 +372,19 @@ def build_slots(cfg: EventConfig) -> list[Slot]:
     out: list[Slot] = []
     if cfg.interval < 5 or cfg.end <= cfg.start:
         return out
+    # work in whole seconds so gaps like 1 min 10 s add up exactly
+    L, B = int(round(cfg.interval * 60)), int(round(max(0, cfg.buffer) * 60))
+    end = int(cfg.end * 60)
+    ls, le = (int(cfg.lunch_start * 60), int(cfg.lunch_end * 60)) if cfg.has_lunch() else (None, None)
     for d in range(len(cfg.days)):
-        t, i = cfg.start, 0
-        while t + cfg.interval <= cfg.end and len(out) < 5000:
-            if cfg.has_lunch() and t < cfg.lunch_end and t + cfg.interval > cfg.lunch_start:
-                t = cfg.lunch_end
+        t, i = int(cfg.start * 60), 0
+        while t + L <= end and len(out) < 5000:
+            if ls is not None and t < le and t + L > ls:
+                t = le
                 continue
-            out.append(Slot(len(out), d, i, t, t + cfg.interval))
+            out.append(Slot(len(out), d, i, t / 60, (t + L) / 60))
             i += 1
-            t += cfg.interval + cfg.buffer
+            t += L + B
     return out
 
 
@@ -1135,9 +1149,10 @@ def build_excel(cfg, slots, startups, hosts, meetings, statuses, now, polish=(),
             ws.cell(r, cc).fill = _fill("E8EDF7")
         ws.row_dimensions[r].height = 24
         r += 1
-        heads = ([(SE, "Session"), (TM, f"Time Slot ({cfg.interval}m)")]
-                 + [x for i in range(T) for x in ((MC(i), f"Table {i + 1}"), (SC(i), f"Status {i + 1}"))]
-                 + [(PC, "POLISHING SCHEDULE"), (WC, "WAITING LIST")])
+        heads = ([(SE, cfg.nm("session")), (TM, f"{cfg.nm('time')} ({cfg.interval:g}m)")]
+                 + [x for i in range(T) for x in ((MC(i), f"{cfg.nm('table')} {i + 1}"),
+                                                  (SC(i), f"{cfg.nm('status')} {i + 1}"))]
+                 + [(PC, cfg.nm("polish")), (WC, cfg.nm("waiting"))])
         for c_, txt in heads:
             c = ws.cell(r, c_, txt)
             c.fill, c.font, c.alignment, c.border = _fill(C_HEAD), _f(10, True, "FFFFFF"), center, box
@@ -1406,6 +1421,56 @@ def read_upload(file) -> pd.DataFrame:
     raise ValueError("Could not read the file. Save it as UTF-8 CSV or .xlsx")
 
 
+SPLIT_HOST = "Contact - Organisation (split)"
+GUESS = [  # (words in the header, field)
+    (("present", "speaker", "pitcher", "founder"), "Presenter"),
+    (("contact", "attendee", "representative", "person"), "Contact"),
+    (("exclud", "avoid", "not interested"), "Excluded Domains"),
+    (("type", "kind", "category"), "Type"),            # hosts only (startups have no Type)
+    (("domain", "sector", "industry", "category", "vertical"), "Domain"),
+    (("block", "unavail", "busy", "restricted"), "Blocked Times"),
+    (("polish", "practice", "rehears"), "Pitch Polishing"),
+    (("priority", "vip", "focus startup"), "Priority"),
+    (("max",), "Max Meetings"),
+    (("from", "arriv", "start time"), "Available From"),
+    (("until", "leave", "cutoff", "cut-off", "end time"), "Available Until"),
+    (("day", "date", "attend"), "Days"),
+    (("startup", "company", "name", "organisation", "organization", "investor", "partner", "host", "firm"), "Name"),
+]
+
+
+def parse_paste(raw: str):
+    """Cells copied from Google Sheets / Excel (tab separated, first row = headers) -> DataFrame."""
+    raw = (raw or "").strip("\n")
+    if not raw.strip():
+        return None
+    sep = "\t" if "\t" in raw.splitlines()[0] else ","
+    try:
+        df = pd.read_csv(io.StringIO(raw), sep=sep, dtype=object, keep_default_na=False, engine="python")
+    except Exception:  # noqa: BLE001
+        return None
+    df.columns = [str(c).strip() or f"Column {i + 1}" for i, c in enumerate(df.columns)]
+    df = df.loc[:, [any(not is_blank(v) for v in df[c]) or not c.startswith("Unnamed") for c in df.columns]]
+    df = df[[any(not is_blank(v) for v in r) for r in df.itertuples(index=False)]].reset_index(drop=True)
+    return df if len(df.columns) else None
+
+
+def guess_field(header: str, role: str, taken: set) -> str:
+    cols = STARTUP_COLS if role == "startup" else HOST_COLS
+    n = norm(header)
+    cand = ALIASES.get(n) if ALIASES.get(n) in cols else next((c for c in cols if c.lower() == n), None)
+    if not cand:
+        for words, f in GUESS:
+            if f in cols and any(w in n for w in words):
+                cand = f
+                break
+    return cand if cand and cand not in taken else "(ignore)"
+
+
+def map_key(role: str, i: int, header: str) -> str:
+    return f"map_{role}_{i}_{hashlib.md5(header.encode()).hexdigest()[:6]}"
+
+
 # --------------------------------------------------------------------------------------
 # Streamlit state helpers
 # --------------------------------------------------------------------------------------
@@ -1423,7 +1488,11 @@ def set_frames(days, startups, hosts, cfg: dict | None = None):
     s.t_start = time.fromisoformat(c.get("start", "10:00"))
     s.t_end = time.fromisoformat(c.get("end", "17:00"))
     s.interval = int(c.get("interval", 20))
-    s.buffer = int(c.get("buffer", 0))
+    buf = float(c.get("buffer", 0) or 0)
+    s.buffer_m, s.buffer_s = int(buf), int(round((buf - int(buf)) * 60))
+    names = c.get("names", {}) or {}
+    for k_ in DEFAULT_NAMES:
+        s[f"nm_{k_}"] = names.get(k_) or DEFAULT_NAMES[k_]
     s.lunch_on = bool(c.get("lunch_on", True))
     s.t_lunch_s = time.fromisoformat(c.get("lunch_start", "12:00"))
     s.t_lunch_e = time.fromisoformat(c.get("lunch_end", "13:00"))
@@ -1469,11 +1538,13 @@ def current_cfg() -> EventConfig:
     pol_days = [labels.index(x) for x in s.get("pol_days", []) if x in labels] if s.get("pol_on") else []
     return EventConfig(
         name=s.ev_name or "Business Matching", days=days, start=tm(s.t_start), end=tm(s.t_end),
-        interval=int(s.interval), buffer=int(s.buffer),
+        interval=int(s.interval), buffer=int(s.buffer_m) + int(s.buffer_s) / 60,
         lunch_start=tm(s.t_lunch_s) if s.lunch_on else None,
         lunch_end=tm(s.t_lunch_e) if s.lunch_on else None,
         tables=int(s.tables), tz=s.tz, sessions=sessions, pol_days=pol_days,
-        pol_start=tm(s.t_pol_s), pol_end=tm(s.t_pol_e), pol_cap=int(s.pol_cap))
+        pol_start=tm(s.t_pol_s), pol_end=tm(s.t_pol_e), pol_cap=int(s.pol_cap),
+        names={k_: (s.get(f"nm_{k_}") or "").strip() for k_ in DEFAULT_NAMES
+               if (s.get(f"nm_{k_}") or "").strip() and s.get(f"nm_{k_}").strip() != DEFAULT_NAMES[k_]})
 
 
 def frames_hash(cfg: EventConfig, sdf: pd.DataFrame, hdf: pd.DataFrame) -> str:
@@ -1492,7 +1563,7 @@ def project_json() -> str:
                    "tables": cfg.tables, "tz": cfg.tz, "sessions": s.sessions_txt,
                    "pol_on": bool(s.pol_on), "pol_days": list(s.pol_days),
                    "pol_start": s.t_pol_s.strftime("%H:%M"), "pol_end": s.t_pol_e.strftime("%H:%M"),
-                   "pol_cap": int(s.pol_cap)},
+                   "pol_cap": int(s.pol_cap), "names": cfg.names},
         "days": cfg.days,
         "startups": s.s_df.to_dict("records"),
         "hosts": s.h_df.to_dict("records"),
@@ -1515,21 +1586,81 @@ def cb_blank():
 
 
 def cb_upload(role: str):
+    """A file goes through the same column check as pasted cells."""
     f = ss().get(f"up_{role}")
     if not f:
         return
     try:
-        df = clean_frame(read_upload(f), role)
-        df = df[[not is_blank(v) for v in df["Name"]]].reset_index(drop=True)
+        df = read_upload(f)
     except Exception as e:  # noqa: BLE001
-        ss().flash = ("error", f"Could not import {f.name}: {e}")
+        ss().flash = ("error", f"Could not read {f.name}: {e}")
         return
-    if role == "startup":
-        ss().s_base = ss().s_df = df
-    else:
-        ss().h_base = ss().h_df = df
-    ss().ver += 1
-    ss().flash = ("success", f"Imported {len(df)} rows from {f.name}")
+    ss()[f"paste_{role}"] = df.to_csv(sep="\t", index=False)
+    ss().flash = ("info", f"Loaded {f.name}. Check which column is which below, then press Import.")
+
+
+def cb_paste(role: str):
+    s = ss()
+    df = parse_paste(s.get(f"paste_{role}", ""))
+    if df is None:
+        s.flash = ("error", "Nothing to import. Paste cells including the header row.")
+        return
+    out = pd.DataFrame(index=range(len(df)))
+    for i, c in enumerate(df.columns):
+        f = s.get(map_key(role, i, c), "(ignore)")
+        col = df[c].reset_index(drop=True)
+        if f == SPLIT_HOST:
+            parts = col.map(lambda v: [x.strip() for x in str(v).split(" - ", 1)] if " - " in str(v)
+                            else ["", str(v).strip()])
+            out["Contact"], out["Name"] = parts.map(lambda p: p[0]), parts.map(lambda p: p[1])
+        elif f != "(ignore)" and f not in out.columns:
+            out[f] = col
+    if "Name" not in out.columns:
+        s.flash = ("error", "Pick which column holds the startup or organisation name.")
+        return
+    new = clean_frame(out, role)
+    new = new[[not is_blank(v) for v in new["Name"]]].reset_index(drop=True)
+    key_base, key_df = ("s_base", "s_df") if role == "startup" else ("h_base", "h_df")
+    if s.get(f"pmode_{role}", "Replace the list") == "Add to the list":
+        old = s[key_df]
+        names = {norm(v) for v in new["Name"]}
+        new = pd.concat([old[[norm(v) not in names for v in old["Name"]]], new], ignore_index=True)
+    s[key_base] = s[key_df] = new
+    s.ver += 1
+    s[f"paste_{role}"] = ""
+    s.flash = ("success", f"Imported {len(new)} {'startups' if role == 'startup' else 'hosts'}.")
+
+
+def paste_box(role: str):
+    s = ss()
+    raw = s.get(f"paste_{role}", "")
+    what = "startups" if role == "startup" else "hosts"
+    with st.expander(f"Paste {what} from Google Sheets or Excel (your own column names are fine)", expanded=bool(raw)):
+        st.text_area("Select the cells in your sheet including the header row, copy, and paste here",
+                     key=f"paste_{role}", height=140,
+                     placeholder="Startup\tPresenter\tSector\nFlexcuit\tMijin\tHardware")
+        df = parse_paste(s.get(f"paste_{role}", ""))
+        if df is None:
+            return
+        cols = STARTUP_COLS if role == "startup" else HOST_COLS
+        opts = ["(ignore)"] + cols + ([SPLIT_HOST] if role == "host" else [])
+        st.caption(f"{len(df)} rows found. Tell the app what each of your columns means:")
+        taken, grid = set(), st.columns(min(4, len(df.columns)))
+        for i, c in enumerate(df.columns):
+            k = map_key(role, i, c)
+            if k not in s:
+                g = guess_field(c, role, taken)
+                if role == "host" and g == "Name" and "Contact" not in taken and \
+                        sum(" - " in str(v) for v in df[c]) > len(df) / 2:
+                    g = SPLIT_HOST
+                s[k] = g
+            taken.add(s[k])
+            sample = ", ".join(str(v) for v in df[c].head(2) if not is_blank(v))[:40]
+            grid[i % len(grid)].selectbox(f"{c}", opts, key=k, help=f"e.g. {sample}" if sample else None)
+        a, b = st.columns([2, 1])
+        a.radio("Import mode", ["Replace the list", "Add to the list"], horizontal=True, key=f"pmode_{role}",
+                label_visibility="collapsed")
+        b.button(f"Import {len(df)} rows", key=f"pbtn_{role}", type="primary", on_click=cb_paste, args=(role,))
 
 
 def cb_project():
@@ -1626,6 +1757,7 @@ def board_payload(day, cfg, slots, startups, hosts, r) -> dict:
         "polOk": [z.k for z in ds if cfg.polish_ok(z)], "polCap": max(1, cfg.pol_cap),
         "polPrior": dict(prior), "statuses": dict(ss().statuses),
         "notes": attendance_notes(cfg, startups), "maxHeight": 880,
+        "names": {k_: cfg.nm(k_) for k_ in DEFAULT_NAMES},
     }
 
 
@@ -1670,8 +1802,10 @@ def setup_tab():
         a, b = st.columns(2)
         a.time_input("Day starts", key="t_start", step=timedelta(minutes=5))
         b.time_input("Day ends", key="t_end", step=timedelta(minutes=5))
-        a.number_input("Meeting length (min)", 5, 180, step=5, key="interval")
-        b.number_input("Gap between meetings (min)", 0, 60, step=5, key="buffer")
+        a.number_input("Meeting length (min)", 5, 180, step=1, key="interval")
+        g1, g2 = b.columns(2)
+        g1.number_input("Gap (min)", 0, 60, step=1, key="buffer_m", help="Break between two meetings")
+        g2.number_input("+ sec", 0, 50, step=10, key="buffer_s")
         st.number_input("Tables (concurrent meetings)", 1, 200, step=1, key="tables")
     with c3:
         st.checkbox("Lunch break", key="lunch_on")
@@ -1709,6 +1843,12 @@ def setup_tab():
         d.number_input("Coaches", 1, 20, key="pol_cap", disabled=not s.pol_on,
                        help="How many startups can be polished at the same time")
 
+    with st.expander("Column names in the schedule"):
+        st.caption("Rename the headings used on the board and in the Excel file, e.g. Table → Booth")
+        cols_ = st.columns(len(DEFAULT_NAMES))
+        for c_, (k_, v_) in zip(cols_, DEFAULT_NAMES.items()):
+            c_.text_input(v_.title() if v_.isupper() else v_, key=f"nm_{k_}")
+
     st.divider()
     st.subheader("Startups")
     u1, u2 = st.columns([3, 1])
@@ -1716,6 +1856,7 @@ def setup_tab():
                      on_change=cb_upload, args=("startup",), label_visibility="collapsed")
     u2.download_button("Startup template", sample_frames()[1].to_csv(index=False).encode("utf-8-sig"),
                        "startups_template.csv", "text/csv")
+    paste_box("startup")
     s.s_df = st.data_editor(
         s.s_base, key=f"s_{s.ver}", num_rows="dynamic", hide_index=True,
         column_config={
@@ -1742,6 +1883,7 @@ def setup_tab():
                      on_change=cb_upload, args=("host",), label_visibility="collapsed")
     u2.download_button("Host template", sample_frames()[2].to_csv(index=False).encode("utf-8-sig"),
                        "hosts_template.csv", "text/csv")
+    paste_box("host")
     s.h_df = st.data_editor(
         s.h_base, key=f"h_{s.ver}", num_rows="dynamic", hide_index=True,
         column_config={

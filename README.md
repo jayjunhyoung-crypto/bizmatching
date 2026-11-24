@@ -17,6 +17,9 @@ bizmatch/
 - **Sessions** such as `Session A 10:00-12:00; Session B 13:00-15:00; Session C 15:00-17:00`. They group the timeline exactly like the team's sheet.
 - **Pitch polishing** that runs alongside the meetings. Each startup gets one polishing slot per selected day, and never has a meeting in that slot. *Coaches* sets how many startups are polished at the same time.
 - Editable tables for startups and hosts. You can also import from CSV or Excel, and download a template.
+- **Paste straight from Google Sheets or Excel.** Copy the cells including your header row and paste them into *Paste startups / hosts*. Your own column names are fine: the app guesses what each column means (`Startup`, `Sector`, `Attending`, `Pitch practice` ...) and you can correct any guess before importing. A host column written like `Raymond - Focus Tech` can be split into contact and organisation. Uploaded CSV / Excel files go through the same check.
+- Meeting length in 1-minute steps, and the gap between meetings in minutes plus seconds (e.g. 1 min 10 s).
+- **Column names** used on the board and in Excel can be renamed (e.g. Table → Booth).
 - **Save project / Open project** stores everything, including the generated schedule and live statuses, in a single `.json` file. Anyone on the team can open it later.
 
 **Tab 2. Generate**
