@@ -2044,8 +2044,13 @@ def board_payload(day, cfg, slots, startups, hosts, r) -> dict:
         "day": day, "tables": cfg.tables, "tz": cfg.tz, "date": str(cfg.day_date(day) or ""),
         "rows": rows, "sessions": cfg.session_list(),
         "startups": [{"name": x.name, "priority": x.priority, "presenter": x.presenter,
-                      "avail": [z.k for z in ds if x.available(z)]}
+                      "avail": [z.k for z in ds if x.available(z)],
+                      "no": [h.name for h in hosts if not compatible(x, h)]}
                      for x in startups if not x.absent],
+        # pairs already scheduled on other days (each startup meets a partner once)
+        "other": {**{f"{m['startup']}|{m['host']}": "-" for m in r.get("parked", []) if m["day"] != day},
+                  **{f"{m['startup']}|{m['host']}": f"{cfg.day_short(m['day'])} {fmt(m['start'])}"
+                     for m in r["meetings"] if m["day"] != day}},
         "hosts": [{"name": h.name, "contact": h.contact, "color": hcol[h.name], "text": text_on(hcol[h.name]),
                    "avail": [z.k for z in ds if h.available(z)]} for h in hosts],
         "meetings": [{"id": f"{m['startup']}|{m['host']}", "startup": m["startup"], "host": m["host"],

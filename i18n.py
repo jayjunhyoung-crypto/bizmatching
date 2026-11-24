@@ -173,10 +173,13 @@ S = {
     "board_cap": ("Drag a meeting onto another table or time. Green fits, amber pushes the meetings in the way to the "
                   "nearest free time, red is a clash. Click a meeting to set its status, pin it or unschedule it. "
                   "Pinned meetings cannot be dragged or pushed and stay when you generate again. ★ marks a priority "
-                  "startup. Ctrl+Z undoes.",
+                  "startup. Ctrl+Z undoes. Search a name to highlight only their schedule. Drag a free partner's "
+                  "name tag onto an empty table (then pick a startup) or onto a waiting startup to add a meeting.",
                   "미팅을 끌어서 다른 테이블이나 시간에 놓아보세요. 초록은 그대로 들어가고, 주황은 겹치는 일정을 가장 가까운 "
                   "빈 시간으로 밀어내고, 빨강은 충돌이에요. 미팅을 클릭하면 상태 변경·고정·배정 취소를 할 수 있어요. "
-                  "고정한 미팅은 끌거나 밀리지 않고, 다시 생성해도 그대로 남아요. ★는 우선 스타트업이에요. Ctrl+Z로 되돌려요."),
+                  "고정한 미팅은 끌거나 밀리지 않고, 다시 생성해도 그대로 남아요. ★는 우선 스타트업이에요. Ctrl+Z로 되돌려요. "
+                  "이름을 검색하면 그 일정만 강조돼요. 쉬는 파트너 이름표를 빈 테이블에 놓고 스타트업을 고르거나, "
+                  "대기 중인 스타트업 위에 놓으면 새 미팅이 생겨요."),
     "clashes_exp": ("{n} clash(es) to resolve", "해결할 충돌 {n}건"),
     "verified": ("Verified: no duplicate pairs, no double booking, table capacity, availability, cutoffs, blocked "
                  "times, domain exclusions", "검증 완료: 중복 매칭 없음, 겹치는 일정 없음, 테이블 수·참석 시간·컷오프·불가 시간·분야 제외 모두 지킴"),

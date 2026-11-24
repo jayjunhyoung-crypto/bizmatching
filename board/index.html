@@ -46,7 +46,7 @@ table.g{border-collapse:separate;border-spacing:0;min-width:100%}
 .cell.push{box-shadow:inset 0 0 0 2.5px var(--amber);background:rgba(224,138,0,.12)}
 .cell.clash{box-shadow:inset 0 0 0 2.5px var(--red);background:rgba(217,45,32,.12)}
 .cell.self{box-shadow:inset 0 0 0 2px var(--line)}
-td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-align:center;line-height:1.45}
+td.wait{font-size:11.5px;color:var(--mut);min-width:240px;max-width:380px;text-align:center;line-height:1.3}
 .chip{flex:1;border-radius:9px;padding:6px 8px;text-align:center;cursor:grab;line-height:1.22;position:relative;
  touch-action:none;transition:transform .16s cubic-bezier(.2,.8,.2,1),box-shadow .16s,opacity .16s;
  display:flex;flex-direction:column;justify-content:center;align-items:center;min-height:54px}
@@ -97,10 +97,41 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
 .legend{display:flex;gap:12px;flex-wrap:wrap;color:var(--mut);font-size:12px}
 .legend span{display:inline-flex;gap:5px;align-items:center}
 .legend i{width:14px;height:10px;border-radius:3px;display:inline-block}
+.find{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 10px}
+.find .box{position:relative;flex:0 1 320px}
+.find input{width:100%;border:1.5px solid var(--line);border-radius:9px;background:var(--panel);padding:7px 30px 7px 32px;outline:none;font:inherit;color:inherit}
+.find input:focus{border-color:var(--cob)}
+.find .box svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);opacity:.5}
+.find .x{position:absolute;right:6px;top:50%;transform:translateY(-50%);border:0;background:none;cursor:pointer;color:var(--mut);font-size:16px;display:none}
+.find .x.on{display:block}
+.find .info{color:var(--mut);font-size:12.5px}
+.find .info b{color:var(--ink)}
+.focusing .chip:not(.hit){opacity:.13;filter:grayscale(.8)}
+.focusing .chip.hit{box-shadow:0 0 0 3px #f5b800,0 4px 14px rgba(0,0,0,.18);z-index:1}
+.focusing .tag:not(.hit),.focusing .stag:not(.hit){opacity:.28}
+.focusing tr.miss td.time{color:var(--mut)}
+.tag.hit,.stag.hit{box-shadow:0 0 0 2px #f5b800}
+td.free{min-width:190px;max-width:300px;vertical-align:middle}
+.tags{display:flex;flex-wrap:wrap;gap:4px;justify-content:center}
+.tag{display:inline-flex;align-items:center;gap:5px;border:1.5px dashed color-mix(in srgb,var(--hc) 65%,#000);
+ background:color-mix(in srgb,var(--hc) 16%,var(--panel));color:var(--ink);border-radius:99px;
+ padding:2px 9px 2px 6px;font-size:11.5px;font-weight:700;cursor:grab;touch-action:none;white-space:nowrap;line-height:1.5}
+.tag:hover{border-style:solid;background:color-mix(in srgb,var(--hc) 30%,var(--panel))}
+.tag i{width:8px;height:8px;border-radius:50%;background:var(--hc);flex:none}
+.tag small{font-weight:500;color:var(--mut)}
+.tag.lift{opacity:.3}
+.tag.ghost{border-style:solid;background:var(--panel)}
+.stag{display:inline-block;border-radius:5px;padding:0 5px;background:var(--zone);color:var(--mut);font-size:11px;line-height:1.5;cursor:pointer;margin:1px 0;transition:background .12s,box-shadow .12s}
+.stag.fit{background:rgba(20,164,77,.18);color:var(--ink);box-shadow:0 0 0 2px var(--green)}
+.stag.clash{background:rgba(217,45,32,.14);color:var(--ink);box-shadow:0 0 0 2px var(--red)}
+.menu .pick{max-height:300px;overflow:auto;display:grid}
+.menu .pick small{color:var(--mut);margin-left:auto;padding-left:10px}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 </head>
 <body>
+<div class="find" id="find"><label class="box"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+  <input id="q" list="qlist" autocomplete="off"><datalist id="qlist"></datalist><button class="x" id="qx" title="Clear">×</button></label><span class="info" id="qinfo"></span></div>
 <div id="app"></div>
 <div class="toast" id="toast"></div>
 <script>
@@ -144,6 +175,17 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
       "{0} is pinned here. Unpin it first": "{0}은(는) 이 자리에 고정돼 있어요. 먼저 고정을 해제하세요",
       "Pinned. Unpin it first to move it": "고정된 미팅이에요. 옮기려면 먼저 고정을 해제하세요",
       "priority startup": "우선 스타트업", "pinned": "고정",
+      "Find a startup or partner to highlight": "강조해서 볼 스타트업이나 파트너 검색",
+      "{0} meetings": "미팅 {0}개", "{0} meeting": "미팅 {0}개", "next {0}": "다음 {0}", "No match": "맞는 이름이 없어요",
+      "Free partners": "쉬는 파트너", "All busy": "모두 미팅 중",
+      "New meeting with {0} at {1}, {2} {3}. Pick a startup next": "{1} {2} {3}에 {0} 새 미팅. 놓으면 스타트업을 골라요",
+      "{0} {1} is taken. Drop on an empty table": "{0} {1}은(는) 이미 차 있어요. 빈 테이블에 놓아주세요",
+      "No startup is free at {0} for {1}": "{0}에 {1}와(과) 만날 수 있는 스타트업이 없어요",
+      "{0} already meets {1} at {2}": "{0}은(는) 이미 {2}에 {1}와(과) 미팅이 있어요",
+      "{0} is not a match for {1}": "{0}은(는) {1}의 제외 분야예요",
+      "All tables are taken at {0}": "{0}에는 빈 테이블이 없어요",
+      "New meeting · {0}": "새 미팅 · {0}", "Who meets {0}?": "누가 {0}와(과) 만날까요?",
+      "{0} today": "오늘 {0}개", "Highlight {0}": "{0} 강조해서 보기", "Added {0}": "추가했어요 · {0}",
       "1st": "1회차", "2nd": "2회차", "{0}th": "{0}회차", "polishing": "폴리싱", "Table": "테이블",
     },
   };
@@ -155,7 +197,61 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
   let version = null;
   const mine = new Set();  // versions this board produced (to ignore stale echoes)
   const hist = [];
-  let showNotes = false, drag = null, menuFor = null, tt = 0, lastFlash = null;
+  let showNotes = false, drag = null, menuFor = null, tt = 0, lastFlash = null, focusQ = "";
+  const norm = (x) => String(x || "").toLowerCase().trim();
+  function focusNames() {        // the startups / partners the search box points at
+    const q = norm(focusQ); if (q.length < 1 || !D) return null;
+    const all = Object.keys(D.startups).concat(Object.keys(D.hosts));
+    const exact = all.filter((n) => norm(n) === q || norm((D.hosts[n] || {}).contact) === q);
+    if (exact.length) return new Set(exact);
+    return new Set(all.filter((n) => norm(n).indexOf(q) >= 0 || norm((D.hosts[n] || {}).contact).indexOf(q) >= 0));
+  }
+  function pairAt(st, s, h) {
+    const m = st.meetings.find((x) => x.startup === s && x.host === h);
+    if (m) return { when: fmt(slotOf(m.k).start) };
+    const o = D.other && D.other[s + "|" + h];
+    return o ? { when: o } : null;
+  }
+  function candidates(st, host, k) {
+    const b = busy(st, k), cnt = {};
+    st.meetings.forEach((m) => (cnt[m.startup] = (cnt[m.startup] || 0) + 1));
+    return Object.keys(D.startups).filter((s) => avail(D.startups[s], k) && !b.s.has(s) && !pairAt(st, s, host) && !(D.startups[s].no || {})[host])
+      .sort((a, c) => (D.startups[c].priority ? 1 : 0) - (D.startups[a].priority ? 1 : 0) || (cnt[a] || 0) - (cnt[c] || 0) || a.localeCompare(c))
+      .map((s) => ({ name: s, n: cnt[s] || 0 }));
+  }
+  function freeTable(st, host, k) {
+    const b = busy(st, k);
+    const pref = hostTables(st, host, k).concat(range(1, D.tables));
+    for (const t of pref) if (t >= 1 && t <= D.tables && !b.t.has(t)) return t;
+    return null;
+  }
+  function addMeeting(st, s, host, k, t) {
+    const nx = { meetings: clone(st.meetings), parked: clone(st.parked).filter((m) => !(m.startup === s && m.host === host)), polish: clone(st.polish), statuses: Object.assign({}, st.statuses) };
+    nx.meetings.push({ id: s + "|" + host, startup: s, host: host, k: k, table: t, lock: false });
+    return nx;
+  }
+  // dragging a free partner's name tag onto an empty table or onto a waiting startup
+  function simulateHost(host, tgt) {
+    const k = tgt.k, sl = slotOf(k), b = busy(S, k), TN = (D.names && D.names.table) || "Table";
+    const reasons = [];
+    if (!avail(D.hosts[host], k)) reasons.push(tr("{0} is not available at {1}", host, fmt(sl.start)));
+    if (b.h.has(host)) { const x = S.meetings.find((m) => m.k === k && m.host === host); reasons.push(tr("{0} is also meeting {1} at {2}", host, x.startup, fmt(sl.start))); }
+    if (tgt.type === "cell") {
+      if (b.t.has(tgt.t)) reasons.push(tr("{0} {1} is taken. Drop on an empty table", TN, tgt.t));
+      const c = reasons.length ? [] : candidates(S, host, k);
+      if (!reasons.length && !c.length) reasons.push(tr("No startup is free at {0} for {1}", fmt(sl.start), host));
+      if (reasons.length) return { kind: "clash", blocked: true, reasons: reasons, text: reasons.join("\n") };
+      return { kind: "fit", pick: { host: host, k: k, t: tgt.t, cands: c }, text: tr("New meeting with {0} at {1}, {2} {3}. Pick a startup next", host, fmt(sl.start), TN, tgt.t) };
+    }
+    const s = tgt.s, ex = pairAt(S, s, host);
+    if (ex) reasons.push(tr("{0} already meets {1} at {2}", s, host, ex.when));
+    if ((D.startups[s].no || {})[host]) reasons.push(tr("{0} is not a match for {1}", s, host));
+    const t = reasons.length ? null : freeTable(S, host, k);
+    if (!reasons.length && t == null) reasons.push(tr("All tables are taken at {0}", fmt(sl.start)));
+    if (reasons.length) return { kind: "clash", blocked: true, reasons: reasons, text: reasons.join("\n") };
+    return { kind: "fit", st: addMeeting(S, s, host, k, t), moved: [], focus: s + "|" + host,
+             text: tr("{0} with {1}", s, host) + " → " + fmt(sl.start) + ", " + TN + " " + t };
+  }
 
   const $ = (sel) => document.querySelector(sel);
   const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -357,21 +453,21 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
   }
 
   // ---------------- render ----------------
-  function chipHTML(m, st, clashSet) {
+  function chipHTML(m, st, clashSet, hit) {
     const H_ = D.hosts[m.host] || { color: "eeeeee", text: "1f2430", contact: "" };
     const s = statusOf(m), bad = clashSet.has(m.id);
-    const cls = ["chip", m.lock ? "pinned" : "", s === "No-Show" ? "ns" : "", s === "Done" ? "done" : "", s === "Ongoing" ? "ongoing" : "", bad ? "bad" : ""].join(" ");
+    const cls = ["chip", hit ? "hit" : "", m.lock ? "pinned" : "", s === "No-Show" ? "ns" : "", s === "Done" ? "done" : "", s === "Ongoing" ? "ongoing" : "", bad ? "bad" : ""].join(" ");
     const star = D.startups[m.startup] && D.startups[m.startup].priority ? "★ " : "";
     const who = H_.contact ? "(" + esc(H_.contact) + " - " + esc(m.host) + ")" : "(" + esc(m.host) + ")";
     const title = bad ? ' title="' + esc(meetingClash(st, m).join("\n")) + '"' : "";
     return '<div class="' + cls + '" data-drag="m" data-id="' + esc(m.id) + '" style="background:#' + H_.color + ";color:#" + H_.text + '"' + title + ">"
       + (m.lock ? PIN : "") + "<b>" + star + esc(m.startup) + '</b><span class="h">' + who + '</span><span class="st ' + s + '">' + stName(s) + "</span></div>";
   }
-  function polHTML(p, clashSet) {
+  function polHTML(p, clashSet, hit) {
     const n = (D.polPrior[p.startup] || 0) + 1;
     const bg = n === 1 ? "F4CCCC" : n === 2 ? "FFE599" : "D0E0E3";
     const s = statusOf(p), who = (D.startups[p.startup] || {}).presenter;
-    const cls = ["chip pol", clashSet.has(p.id) ? "bad" : "", s === "No-Show" ? "ns" : "", s === "Done" ? "done" : "", s === "Ongoing" ? "ongoing" : ""].join(" ");
+    const cls = ["chip pol", hit ? "hit" : "", clashSet.has(p.id) ? "bad" : "", s === "No-Show" ? "ns" : "", s === "Done" ? "done" : "", s === "Ongoing" ? "ongoing" : ""].join(" ");
     const tip = [p.note ? tr("Focus: {0}", p.note) : ""].concat(clashSet.has(p.id) ? polishClash(S, p) : []).filter(Boolean).join("\n");
     return '<div class="' + cls + '" data-drag="p" data-id="' + esc(p.id) + '" style="background:#' + bg + '"' + (tip ? ' title="' + esc(tip) + '"' : "") + "><b>"
       + esc(p.startup) + "</b><small>" + (who ? esc(who) + " · " : "") + (n === 1 ? tr("1st") : n === 2 ? tr("2nd") : tr("{0}th", n)) + " " + tr("polishing") + (p.note ? " ✎" : "")
@@ -393,27 +489,36 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
     const N = D.names || {};
     let head = "<tr><th>" + esc(N.session || "Session") + "</th><th>" + esc(N.time || "Time") + "</th>";
     for (let t = 1; t <= D.tables; t++) head += "<th>" + esc(N.table || "Table") + " " + t + "</th>";
-    head += (D.polOn ? "<th>" + esc(N.polish || "Pitch polishing") + "</th>" : "") + "<th>" + esc(N.waiting || "Waiting list") + "</th></tr>";
+    head += "<th>" + tr("Free partners") + "</th>" + (D.polOn ? "<th>" + esc(N.polish || "Pitch polishing") + "</th>" : "") + "<th>" + esc(N.waiting || "Waiting list") + "</th></tr>";
+    const F = focusNames();
+    const hitM = (m) => F && (F.has(m.startup) || F.has(m.host));
     let body = "";
     D.rows.forEach((r, ri) => {
-      const cols = D.tables + (D.polOn ? 4 : 3);
+      const cols = D.tables + (D.polOn ? 5 : 4);
       if (r.kind !== "slot") { body += '<tr class="brk"><td class="sess">-</td><td class="time" style="color:var(--mut)">' + esc(r.time || "") + '</td><td colspan="' + (cols - 2) + '">' + esc(r.label) + "</td></tr>"; return; }
       const isNow = n.cmp === 0 && n.m >= r.start && n.m < r.end;
-      let row = "<tr" + (isNow ? ' class="now"' : "") + ">";
+      const b = busy(st, r.k);
+      const rowHit = F && (st.meetings.some((m) => m.k === r.k && hitM(m)) || st.polish.some((p) => p.k === r.k && F.has(p.startup)));
+      let row = "<tr class=\"" + (isNow ? "now " : "") + (F && !rowHit ? "miss" : "") + "\">";
       if (spans[ri]) { const sx = D.sessions[r.session]; row += '<td class="sess" rowspan="' + spans[ri] + '">' + (sx ? esc(sx.name) + "<small>" + fmt(sx.start) + "–" + fmt(sx.end) + "</small>" : "-") + "</td>"; }
       row += '<td class="time">' + fmt(r.start) + " – " + fmt(r.end) + "</td>";
       for (let t = 1; t <= D.tables; t++) {
         const m = at[r.k + "|" + t];
-        row += '<td><div class="cell" data-cell="' + r.k + "|" + t + '">' + (m ? chipHTML(m, st, clashSet) : '<span class="dash">-</span>') + "</div></td>";
+        row += '<td><div class="cell" data-cell="' + r.k + "|" + t + '">' + (m ? chipHTML(m, st, clashSet, hitM(m)) : '<span class="dash">-</span>') + "</div></td>";
       }
-      if (D.polOn) row += '<td><div class="cell pc" data-pcell="' + r.k + '">' + (polAt[r.k] || []).map((p) => polHTML(p, clashSet)).join("") + "</div></td>";
-      const b = busy(st, r.k);
+      const free = Object.keys(D.hosts).filter((h) => D.hosts[h].avail[r.k] && !b.h.has(h));
+      row += '<td class="free"><div class="tags">' + (free.length ? free.map((h) => {
+        const H_ = D.hosts[h];
+        return '<span class="tag' + (F && F.has(h) ? " hit" : "") + '" data-drag="h" data-id="' + esc(h) + '" data-k="' + r.k + '" style="--hc:#' + H_.color + '" title="' + esc(H_.contact ? H_.contact + " · " + h : h) + '"><i></i>' + esc(h) + "</span>";
+      }).join("") : '<span style="color:var(--mut);font-size:11.5px">' + tr("All busy") + "</span>") + "</div></td>";
+      if (D.polOn) row += '<td><div class="cell pc" data-pcell="' + r.k + '">' + (polAt[r.k] || []).map((p) => polHTML(p, clashSet, F && F.has(p.startup))).join("") + "</div></td>";
       const waiting = Object.keys(D.startups).filter((s) => D.startups[s].avail[r.k] && !b.s.has(s));
-      row += '<td class="wait">' + (waiting.length ? waiting.map(esc).join(" • ") : "<i>" + tr("None (all in sessions)") + "</i>") + "</td></tr>";
+      row += '<td class="wait">' + (waiting.length ? waiting.map((s) => '<span class="stag' + (F && F.has(s) ? " hit" : "") + '" data-stag="' + esc(s) + '" data-k="' + r.k + '">' + esc(s) + "</span>").join(" ") : "<i>" + tr("None (all in sessions)") + "</i>") + "</td></tr>";
       body += row;
     });
     const notes = D.notes.length ? '<button class="btn' + (showNotes ? " on" : "") + '" data-act="notes">' + tr(showNotes ? "Hide attendance notes" : "Show attendance notes") + "</button>" : "";
     const parked = st.parked.map((m) => chipHTML(m, st, new Set([m.id]))).join("");
+    const oldWrap = document.getElementById("wrap"), keep = oldWrap ? [oldWrap.scrollTop, oldWrap.scrollLeft] : null;
     document.getElementById("app").innerHTML =
       '<div class="bar"><button class="btn" data-act="undo"' + (hist.length ? "" : " disabled") + ">↶ " + tr("Undo") + "</button>"
       + (clashes.length ? '<span class="pill bad" data-act="clashes" title="' + esc(clashes.map((c) => c.text).join("\n")) + '">' + tr(clashes.length > 1 ? "{0} clashes" : "{0} clash", clashes.length) + "</span>" : '<span class="pill"><i style="background:var(--green)"></i>' + tr("No clashes") + "</span>")
@@ -423,7 +528,9 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
       + '<span><i style="background:rgba(20,164,77,.35)"></i>' + tr("fits") + '</span><span><i style="background:rgba(224,138,0,.4)"></i>' + tr("pushes others") + '</span><span><i style="background:rgba(217,45,32,.4)"></i>' + tr("clash") + "</span></span></div>"
       + (showNotes ? '<div class="notes">' + D.notes.map((x) => "<div><b>" + esc(x[0]) + ":</b> " + esc(x[1]) + "</div>").join("") + "</div>" : "")
       + '<div class="tray" data-tray="1"><span class="lab">' + tr("Unplaced") + "</span>" + (parked || '<span style="color:var(--mut)">' + tr("Drag a meeting here to unschedule it") + "</span>") + "</div>"
-      + '<div class="wrap" id="wrap"><table class="g"><thead>' + head + "</thead><tbody>" + body + "</tbody></table></div>";
+      + '<div class="wrap' + (F ? " focusing" : "") + '" id="wrap"><table class="g"><thead>' + head + "</thead><tbody>" + body + "</tbody></table></div>";
+    if (keep) { const w = document.getElementById("wrap"); w.scrollTop = keep[0]; w.scrollLeft = keep[1]; }
+    renderInfo(F);
     if (lastFlash) {
       (lastFlash.snap || []).forEach((id) => { const el = document.querySelector('[data-id="' + cssEsc(id) + '"]'); if (el) el.classList.add("snap"); });
       (lastFlash.bump || []).forEach((id) => { const el = document.querySelector('[data-id="' + cssEsc(id) + '"]'); if (el) el.classList.add("bump"); });
@@ -443,12 +550,13 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
   // ---------------- drag and drop ----------------
   function targetAt(x, y) {
     const el = document.elementFromPoint(x, y); if (!el) return null;
+    const sg = el.closest("[data-stag]"); if (sg) return { type: "stag", k: +sg.dataset.k, s: sg.dataset.stag, el: sg };
     const c = el.closest("[data-cell]"); if (c) { const p = c.dataset.cell.split("|"); return { type: "cell", k: +p[0], t: +p[1], el: c }; }
     const p = el.closest("[data-pcell]"); if (p) return { type: "pol", k: +p.dataset.pcell, el: p };
     const tr = el.closest("[data-tray]"); if (tr) return { type: "tray", el: tr };
     return null;
   }
-  function clearHot() { document.querySelectorAll(".fit,.push,.clash,.hot").forEach((e) => { if (e.classList.contains("cell") || e.classList.contains("tray")) e.classList.remove("fit", "push", "clash", "hot"); }); }
+  function clearHot() { document.querySelectorAll(".fit,.push,.clash,.hot").forEach((e) => { if (e.classList.contains("cell") || e.classList.contains("tray") || e.classList.contains("stag")) e.classList.remove("fit", "push", "clash", "hot"); }); }
   function onDown(e) {
     const c = e.target.closest("[data-drag]");
     if (!c || e.button > 0) return;
@@ -476,8 +584,9 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
     const key = t ? t.type + (t.k != null ? t.k : "") + "|" + (t.t || "") : "";
     if (key !== drag.key) {
       drag.key = key; clearHot(); drag.tgt = t; drag.plan = null;
-      if (t && !(drag.type === "p" && t.type !== "pol") && !(drag.type === "m" && t.type === "pol")) {
-        drag.plan = simulate({ type: drag.type, id: drag.id }, t);
+      const okT = t && (drag.type === "h" ? (t.type === "cell" || t.type === "stag") : drag.type === "p" ? t.type === "pol" : (t.type === "cell" || t.type === "tray"));
+      if (okT) {
+        drag.plan = drag.type === "h" ? simulateHost(drag.id, t) : simulate({ type: drag.type, id: drag.id }, t);
         if (drag.plan) {
           t.el.classList.add(t.type === "tray" ? "hot" : drag.plan.kind);
           drag.g.dataset.kind = t.type === "tray" ? "" : drag.plan.kind;
@@ -486,7 +595,7 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
       } else { if (drag.hint) drag.hint.style.display = "none"; drag.g.dataset.kind = ""; }
     }
     // magnetic snap: the ghost locks onto the cell under the pointer
-    if (drag.plan && drag.tgt && drag.tgt.type !== "tray") {
+    if (drag.plan && drag.tgt && drag.tgt.type !== "tray" && drag.tgt.type !== "stag") {
       const r = drag.tgt.el.getBoundingClientRect();
       drag.g.classList.add("snapped");
       drag.g.style.left = (r.left + (r.width - drag.w) / 2) + "px"; drag.g.style.top = (r.top + (r.height - drag.h) / 2) + "px";
@@ -512,11 +621,13 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
     if (d.g) d.g.remove(); if (d.hint) d.hint.remove();
     if (d.el) d.el.classList.remove("lift");
     if (d.blocked) return;
-    if (!d.started) { openMenu(d.el); return; }
+    if (!d.started) { if (d.type === "h") setFocus(d.id); else openMenu(d.el); return; }
     if (cancel || !d.plan) return;
     const p = d.plan;
     if (p.blocked) { toast(p.reasons[0], true); return; }
+    if (p.pick) { openPicker(d.tgt.el, p.pick); return; }
     commit(p.st, { snap: [p.focus], bump: p.moved.map((x) => x.id) });
+    if (d.type === "h") { toast(tr("Added {0}", tr("{0} with {1}", p.focus.split("|")[0], d.id))); return; }
     if (p.kind === "clash") toast(tr("Placed with a clash. {0}", p.reasons[0]), true);
     else if (p.moved.length) toast(p.moved.map(movedText).join(" · "));
   }
@@ -539,6 +650,7 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
         [["Auto", "#cbd2e0"], ["Scheduled", "#9ca3af"], ["Ongoing", "#1240e0"], ["Done", "#16a34a"], ["No-Show", "#d92d20"]].forEach((x) => {
           h += '<button data-st="' + x[0] + '"' + (cur === x[0] ? ' class="cur"' : "") + '><span class="dot" style="background:' + x[1] + '"></span>' + (x[0] === "Auto" ? tr("Auto (follows the clock)") : stName(x[0])) + "</button>";
         });
+        h += '<button data-mact="focus">' + tr("Highlight {0}", esc(item.startup)) + "</button>";
         h += '<button data-mact="pin">' + tr(item.lock ? "Unpin" : "Pin here") + "</button>";
         h += '<button data-mact="park">' + tr("Unschedule") + "</button>";
       } else h += '<div class="why" style="color:var(--mut)">' + tr("Drag it onto a table to schedule it") + "</div>";
@@ -561,9 +673,38 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
     if (r.bottom + 6 + mh > window.innerHeight) top = Math.max(6, r.top - mh - 6 + window.scrollY);
     m.style.left = left + "px"; m.style.top = top + "px";
   }
+  function placeMenu(m, el) {
+    document.body.appendChild(m);
+    const r = el.getBoundingClientRect(), mw = m.offsetWidth, mh = m.offsetHeight;
+    let left = r.left + window.scrollX, top = r.bottom + 6 + window.scrollY;
+    if (left + mw > document.documentElement.clientWidth - 6) left = Math.max(6, document.documentElement.clientWidth - mw - 6);
+    if (r.bottom + 6 + mh > window.innerHeight) top = Math.max(6, r.top - mh - 6 + window.scrollY);
+    m.style.left = left + "px"; m.style.top = top + "px";
+  }
+  function openPicker(el, pk) {
+    closeMenu();
+    menuFor = { type: "pick", pick: pk };
+    const m = document.createElement("div"); m.className = "menu"; m.id = "menu";
+    const H_ = D.hosts[pk.host] || {};
+    let h = '<div class="t">' + tr("New meeting · {0}", esc(pk.host)) + "<small>" + fmt(slotOf(pk.k).start) + " · " + esc((D.names && D.names.table) || "Table") + " " + pk.t
+      + (H_.contact ? " · " + esc(H_.contact) : "") + "</small></div><div class=\"why\" style=\"color:var(--mut)\">" + tr("Who meets {0}?", esc(pk.host)) + '</div><div class="pick">';
+    pk.cands.forEach((c) => {
+      h += '<button data-pick="' + esc(c.name) + '">' + (D.startups[c.name].priority ? "★ " : "") + esc(c.name) + "<small>" + tr(c.n === 1 ? "{0} meeting" : "{0} meetings", c.n) + "</small></button>";
+    });
+    m.innerHTML = h + "</div>";
+    placeMenu(m, el);
+  }
   function closeMenu() { const m = document.getElementById("menu"); if (m) m.remove(); menuFor = null; }
   function menuClick(b) {
     if (!menuFor) return;
+    if (menuFor.type === "pick") {
+      const pk = menuFor.pick, s = b.dataset.pick; if (!s) return;
+      closeMenu();
+      commit(addMeeting(S, s, pk.host, pk.k, pk.t), { snap: [s + "|" + pk.host] });
+      toast(tr("Added {0}", tr("{0} with {1}", s, pk.host)));
+      return;
+    }
+    if (b.dataset.mact === "focus") { const f = menuFor.id.split("|")[0]; closeMenu(); setFocus(f); return; }
     const id = menuFor.id, next = { meetings: clone(S.meetings), parked: clone(S.parked), polish: clone(S.polish), statuses: Object.assign({}, S.statuses) };
     if (b.dataset.st) { if (b.dataset.st === "Auto") delete next.statuses[id]; else next.statuses[id] = b.dataset.st; closeMenu(); commit(next); return; }
     const a = b.dataset.mact;
@@ -571,6 +712,30 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
     if (a === "park") { const m = next.meetings.find((x) => x.id === id); if (m) { next.meetings = next.meetings.filter((x) => x.id !== id); next.parked.push(Object.assign({}, m, { k: null, table: 0, lock: false })); } }
     if (a === "delpol") next.polish = next.polish.filter((p) => p.id !== id);
     closeMenu(); commit(next);
+  }
+
+  // ---------------- find / highlight ----------------
+  const qEl = document.getElementById("q"), qx = document.getElementById("qx");
+  function setFocus(name) { focusQ = name || ""; qEl.value = focusQ; render(); }
+  function renderInfo(F) {
+    qEl.placeholder = tr("Find a startup or partner to highlight");
+    qx.classList.toggle("on", !!focusQ);
+    const info = document.getElementById("qinfo");
+    if (!F) { info.innerHTML = ""; return; }
+    if (!F.size) { info.textContent = tr("No match"); return; }
+    if (F.size > 1) { info.innerHTML = Array.from(F).slice(0, 6).map(esc).join(", ") + (F.size > 6 ? " …" : ""); return; }
+    const name = Array.from(F)[0];
+    const ms = S.meetings.filter((m) => m.startup === name || m.host === name).sort((a, b) => a.k - b.k);
+    const ps = S.polish.filter((p) => p.startup === name);
+    const n = nowInfo(), nxt = ms.find((m) => statusOf(m) === "Scheduled" && (n.cmp !== 0 || slotOf(m.k).start >= n.m));
+    info.innerHTML = "<b>" + esc(name) + "</b> · " + tr(ms.length === 1 ? "{0} meeting" : "{0} meetings", ms.length)
+      + (ps.length ? " · " + tr("pitch polishing") + " " + ps.map((p) => fmt(slotOf(p.k).start)).join(", ") : "")
+      + (nxt ? " · " + tr("next {0}", fmt(slotOf(nxt.k).start) + " " + esc(nxt.startup === name ? nxt.host : nxt.startup)) : "");
+  }
+  qEl.addEventListener("input", () => { focusQ = qEl.value; render(); });
+  qx.addEventListener("click", () => setFocus(""));
+  function fillList() {
+    document.getElementById("qlist").innerHTML = Object.keys(D.startups).concat(Object.keys(D.hosts)).map((n) => '<option value="' + esc(n) + '">').join("");
   }
 
   // ---------------- misc ----------------
@@ -585,6 +750,7 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
   });
   document.addEventListener("click", (e) => {
     const mb = e.target.closest("#menu button"); if (mb) { menuClick(mb); return; }
+    const sg = e.target.closest("[data-stag]"); if (sg && !drag) { setFocus(focusQ === sg.dataset.stag ? "" : sg.dataset.stag); return; }
     const b = e.target.closest("[data-act]"); if (!b) return;
     if (b.dataset.act === "undo") undo();
     if (b.dataset.act === "notes") { showNotes = !showNotes; render(); }
@@ -617,14 +783,17 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-a
       maxHeight: data.maxHeight || 900, names: data.names || {}, lang: data.lang || "en",
     };
     data.rows.forEach((r) => { if (r.kind === "slot") D.slotByK[r.k] = r; });
-    data.startups.forEach((s) => (D.startups[s.name] = { avail: toSet(s.avail), priority: s.priority, presenter: s.presenter || "" }));
+    data.startups.forEach((s) => (D.startups[s.name] = { avail: toSet(s.avail), priority: s.priority, presenter: s.presenter || "", no: toSet(s.no) }));
+    D.other = data.other || {};
     data.hosts.forEach((h) => (D.hosts[h.name] = { avail: toSet(h.avail), color: h.color, text: h.text, contact: h.contact }));
     S = { meetings: data.meetings || [], parked: data.parked || [], polish: data.polish || [], statuses: data.statuses || {} };
     version = data.version; hist.length = 0;
+    fillList();
     render();
   });
   // test hook: same logic as a pointer drop
-  window.__bm = { hist: () => hist.length, version: () => version, state: () => S,
+  window.__bm = { focus: (q) => setFocus(q), host: (h, target) => { const p = simulateHost(h, target); return p && { kind: p.kind, text: p.text, pick: p.pick && p.pick.cands.map((c) => c.name) }; },
+    hist: () => hist.length, version: () => version, state: () => S,
     drop: (type, id, target) => { const p = simulate({ type: type, id: id }, target); if (p && p.blocked) return { kind: p.kind, text: p.text, blocked: true }; if (p) commit(p.st, { snap: [p.focus], bump: p.moved.map((x) => x.id) }); return p && { kind: p.kind, text: p.text }; } };
   ST.ready();
 })();

@@ -87,6 +87,7 @@ select{border:1px solid var(--line);border-radius:9px;background:var(--panel);pa
 .chip .who{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .chip .org{color:var(--mut);font-weight:400;font-size:12px}
 .chip .ic{font-size:11px;font-weight:800}
+.chip.s-Done{opacity:.8}
 .chip.s-Done{background:var(--greenbg);color:var(--green)} .chip.s-Done .t,.chip.s-Done .org{color:var(--green);opacity:.8}
 .chip.s-Ongoing{background:var(--bluebg);color:var(--blue);border-color:var(--blue)} .chip.s-Ongoing .t,.chip.s-Ongoing .org{color:var(--blue)}
 .chip.s-No-Show{background:var(--redbg);color:var(--red)} .chip.s-No-Show .who{text-decoration:line-through} .chip.s-No-Show .t,.chip.s-No-Show .org{color:var(--red);opacity:.85}
@@ -146,7 +147,7 @@ select{border:1px solid var(--line);border-radius:9px;background:var(--panel);pa
     "Now": "지금", "Next": "다음", "ends": "종료", "Table": "테이블", "No meeting running right now.": "지금 진행 중인 미팅이 없어요.",
     "All": "전체", "Priority": "우선순위", "Has no-show": "노쇼 있음", "In a meeting now": "지금 미팅 중",
     "Part days": "일부만 참석", "Sort by name": "이름순", "Most meetings": "미팅 많은 순", "Least progress": "진행 적은 순",
-    "Most no-shows": "노쇼 많은 순", "Startup": "스타트업", "Partner": "파트너", "Progress": "진행",
+    "Most no-shows": "노쇼 많은 순", "Up next first": "다음 미팅 빠른 순", "Startup": "스타트업", "Partner": "파트너", "Progress": "진행",
     "Practice": "피칭 연습", "done": "완료", "No meetings": "미팅 없음", "Not attending": "불참",
     "only": "만 참석", "Nothing matches.": "조건에 맞는 항목이 없어요.", "Auto (follows the clock)": "자동 (시간 따라)",
     "no-show": "노쇼", "practices": "회 연습", "round": "차", "meetings today": "개 미팅 오늘",
@@ -160,7 +161,9 @@ select{border:1px solid var(--line);border-radius:9px;background:var(--panel);pa
   const DOT = { Scheduled: "#9aa3b8", Ongoing: "var(--blue)", Done: "var(--green)", "No-Show": "var(--red)" };
 
   let D = null, statuses = {}, version = null, seq = 0;
-  const ui = { day: -1, view: "s", q: "", f: "all", sort: "name", menu: null };
+  const ui = { day: -1, view: "s", q: "", f: "all", sort: "next", menu: null };
+  const ORDER = { Ongoing: 0, Scheduled: 1, "No-Show": 2, Done: 3 };   // what is still to come first, finished ones last
+  const byLive = (a, b) => ORDER[a.st] - ORDER[b.st] || a.start - b.start;
 
   // ---------------- time ----------------
   function nowInfo() {
@@ -279,7 +282,9 @@ select{border:1px solid var(--line);border-radius:9px;background:var(--panel);pa
     });
     const prog = (r) => r.ms.length ? (r.c.Done + r.c["No-Show"]) / r.ms.length : 1;
     const byName = (a, b) => a.p.name.localeCompare(b.p.name);
+    const nextAt = (r) => { const u = r.ms.filter((m) => m.st === "Ongoing" || m.st === "Scheduled"); return u.length ? Math.min.apply(null, u.map((m) => m.day * 100000 + m.start)) : Infinity; };
     const sorters = {
+      next: (a, b) => { const x = nextAt(a), y = nextAt(b); return x === y ? byName(a, b) : x < y ? -1 : 1; },
       name: byName,
       most: (a, b) => b.ms.length - a.ms.length || byName(a, b),
       least: (a, b) => prog(a) - prog(b) || byName(a, b),
@@ -311,7 +316,7 @@ select{border:1px solid var(--line);border-radius:9px;background:var(--panel);pa
       const progress = `<div class="prog">${bar(r.c, n, "bar")}<div class="txt"><span><b>${r.c.Done}</b> / ${n} ${esc(tr("done"))}</span>` +
         (r.c["No-Show"] ? `<span class="ns">${r.c["No-Show"]} ${esc(tr("no-show"))}</span>` : "") + `</div></div>`;
       const dayCells = dayIdx.map((d) => {
-        const ms = r.ms.filter((m) => m.day === d);
+        const ms = r.ms.filter((m) => m.day === d).sort(byLive);
         if (!ms.length) return `<div class="td"><span class="empty">${p.days.indexOf(d) < 0 ? "–" : esc(tr("No meetings"))}</span></div>`;
         return `<div class="td"><div class="chips">` + ms.map((m) => {
           if (S) { const hh = D.hostsBy[m.host] || {}; return chip(m, hh.contact || m.host, hh.contact ? m.host : "", hh.color, "", R.match(m.host) || R.match(hh.contact)); }
@@ -338,7 +343,7 @@ select{border:1px solid var(--line);border-radius:9px;background:var(--panel);pa
     fe.innerHTML = fl.map((f) => `<button class="fchip ${ui.f === f[0] ? "on" : ""}" data-v="${f[0]}">${esc(f[1])}</button>`).join("");
     fe.onclick = (e) => { const b = e.target.closest("button"); if (b) { ui.f = b.dataset.v; render(); } };
     const so = document.getElementById("sort");
-    const opts = [["name", tr("Sort by name")], ["most", tr("Most meetings")], ["least", tr("Least progress")], ["ns", tr("Most no-shows")]];
+    const opts = [["next", tr("Up next first")], ["name", tr("Sort by name")], ["most", tr("Most meetings")], ["least", tr("Least progress")], ["ns", tr("Most no-shows")]];
     so.innerHTML = opts.map((o) => `<option value="${o[0]}" ${ui.sort === o[0] ? "selected" : ""}>${esc(o[1])}</option>`).join("");
     const q = document.getElementById("q");
     q.placeholder = tr("Search");
