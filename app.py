@@ -22,6 +22,9 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
+import importlib
+import i18n as _i18n
+importlib.reload(_i18n)   # Streamlit Cloud reruns app.py after a push but can keep the old text module
 from i18n import COL_LABELS, LANGS, SUMMARY_KO, T, lang
 from store import Store
 from openpyxl import Workbook
@@ -1522,7 +1525,7 @@ def guess_field(header: str, role: str, taken: set) -> str:
 
 def default_label(role: str, col: str, lg: str | None = None) -> str:
     L = COL_LABELS[lg or lang()]
-    return L["_host_name"] if role == "host" and col == "Name" else L[col]
+    return L.get("_host_name", "Organisation") if role == "host" and col == "Name" else L.get(col, col)
 
 
 def col_label(role: str, col: str) -> str:
