@@ -31,22 +31,26 @@ button{font:inherit;color:inherit}
 .tray .chip{min-width:150px}
 .wrap{overflow:auto;border:1px solid var(--line);border-radius:12px;background:var(--panel);position:relative}
 table.g{border-collapse:separate;border-spacing:0;min-width:100%}
-.g th{background:var(--head);color:#fff;font-weight:600;padding:9px 8px;position:sticky;top:0;z-index:3;white-space:nowrap;text-align:center}
+.g th{background:var(--head);color:#fff;font-weight:600;padding:9px 8px;position:sticky;top:0;z-index:3;white-space:nowrap;text-align:center;
+ transform:translateY(var(--st,0px));will-change:transform}
+html.fs,body.fs{background:var(--bg)}
+body.fs{padding:12px 16px}
+.btn.fsb{margin-left:4px}
 .g td{border-bottom:1px solid var(--line);border-left:1px solid var(--line);padding:4px;vertical-align:middle}
-.g td.sess{position:sticky;left:0;z-index:2;background:var(--panel);text-align:center;font-weight:700;min-width:92px;border-left:0}
+.g td.sess{position:sticky;left:0;z-index:2;background:var(--panel);text-align:center;font-weight:700;min-width:82px;border-left:0}
 .g td.sess small{display:block;font-weight:500;color:var(--mut)}
-.g td.time{text-align:center;font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums;min-width:104px}
+.g td.time{text-align:center;font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums;min-width:94px}
 .g tr.now td.time{color:#fff;background:var(--cob)}
 .g tr.now td{background-color:rgba(18,64,224,.05)}
 .g tr.brk td{background:var(--zone);color:var(--mut);font-weight:700;text-align:center;height:30px;letter-spacing:.02em}
-.cell{min-width:138px;height:62px;border-radius:9px;transition:background .12s,box-shadow .12s;display:flex;align-items:stretch}
-.cell.pc{min-width:150px;flex-direction:column;gap:3px}
+.cell{min-width:118px;height:62px;border-radius:9px;transition:background .12s,box-shadow .12s;display:flex;align-items:stretch}
+.cell.pc{min-width:130px;flex-direction:column;gap:3px}
 .cell .dash{flex:1;display:flex;align-items:center;justify-content:center;color:var(--line);font-size:16px}
 .cell.fit{box-shadow:inset 0 0 0 2.5px var(--green);background:rgba(20,164,77,.10)}
 .cell.push{box-shadow:inset 0 0 0 2.5px var(--amber);background:rgba(224,138,0,.12)}
 .cell.clash{box-shadow:inset 0 0 0 2.5px var(--red);background:rgba(217,45,32,.12)}
 .cell.self{box-shadow:inset 0 0 0 2px var(--line)}
-td.wait{font-size:11.5px;color:var(--mut);min-width:240px;max-width:380px;text-align:center;line-height:1.3}
+td.wait{font-size:11.5px;color:var(--mut);min-width:170px;max-width:320px;text-align:center;line-height:1.3}
 .chip{flex:1;border-radius:9px;padding:6px 8px;text-align:center;cursor:grab;line-height:1.22;position:relative;
  touch-action:none;transition:transform .16s cubic-bezier(.2,.8,.2,1),box-shadow .16s,opacity .16s;
  display:flex;flex-direction:column;justify-content:center;align-items:center;min-height:54px}
@@ -111,7 +115,7 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:240px;max-width:380px;text-a
 .focusing .tag:not(.hit),.focusing .stag:not(.hit){opacity:.28}
 .focusing tr.miss td.time{color:var(--mut)}
 .tag.hit,.stag.hit{box-shadow:0 0 0 2px #f5b800}
-td.free{min-width:190px;max-width:300px;vertical-align:middle}
+td.free{min-width:150px;max-width:240px;vertical-align:middle}
 .tags{display:flex;flex-wrap:wrap;gap:4px;justify-content:center}
 .tag{display:inline-flex;align-items:center;gap:5px;border:1.5px dashed color-mix(in srgb,var(--hc) 65%,#000);
  background:color-mix(in srgb,var(--hc) 16%,var(--panel));color:var(--ink);border-radius:99px;
@@ -185,7 +189,8 @@ td.free{min-width:190px;max-width:300px;vertical-align:middle}
       "{0} is not a match for {1}": "{0}은(는) {1}의 제외 분야예요",
       "All tables are taken at {0}": "{0}에는 빈 테이블이 없어요",
       "New meeting · {0}": "새 미팅 · {0}", "Who meets {0}?": "누가 {0}와(과) 만날까요?",
-      "{0} today": "오늘 {0}개", "preferred": "선호 분야", "Highlight {0}": "{0} 강조해서 보기", "Added {0}": "추가했어요 · {0}",
+      "{0} today": "오늘 {0}개", "Full screen": "전체 화면", "Exit full screen": "전체 화면 끄기",
+      "Full screen is not available here": "여기서는 전체 화면을 쓸 수 없어요", "preferred": "선호 분야", "Highlight {0}": "{0} 강조해서 보기", "Added {0}": "추가했어요 · {0}",
       "1st": "1회차", "2nd": "2회차", "{0}th": "{0}회차", "polishing": "폴리싱", "Table": "테이블",
     },
   };
@@ -197,7 +202,7 @@ td.free{min-width:190px;max-width:300px;vertical-align:middle}
   let version = null;
   const mine = new Set();  // versions this board produced (to ignore stale echoes)
   const hist = [];
-  let showNotes = false, drag = null, menuFor = null, tt = 0, lastFlash = null, focusQ = "";
+  let showNotes = false, drag = null, menuFor = null, tt = 0, lastFlash = null, focusQ = "", full = false;
   const norm = (x) => String(x || "").toLowerCase().trim();
   function focusNames() {        // the startups / partners the search box points at
     const q = norm(focusQ); if (q.length < 1 || !D) return null;
@@ -524,7 +529,8 @@ td.free{min-width:190px;max-width:300px;vertical-align:middle}
       '<div class="bar"><button class="btn" data-act="undo"' + (hist.length ? "" : " disabled") + ">↶ " + tr("Undo") + "</button>"
       + (clashes.length ? '<span class="pill bad" data-act="clashes" title="' + esc(clashes.map((c) => c.text).join("\n")) + '">' + tr(clashes.length > 1 ? "{0} clashes" : "{0} clash", clashes.length) + "</span>" : '<span class="pill"><i style="background:var(--green)"></i>' + tr("No clashes") + "</span>")
       + STATUSES.map((s) => '<span class="pill"><i style="background:' + { Scheduled: "#9ca3af", Ongoing: "#1240e0", Done: "#16a34a", "No-Show": "#d92d20" }[s] + '"></i>' + counts[s] + " " + stName(s) + "</span>").join("")
-      + notes + '<span class="spacer"></span>' + (n.cmp === 0 ? '<span class="clock">' + tr("Now {0}", n.hm) + "</span>" : "")
+      + notes + '<button class="btn fsb" data-act="full">' + (full ? "✕ " + tr("Exit full screen") : "⤢ " + tr("Full screen")) + "</button>"
+      + '<span class="spacer"></span>' + (n.cmp === 0 ? '<span class="clock">' + tr("Now {0}", n.hm) + "</span>" : "")
       + '<span class="legend"><span>★ ' + tr("priority startup") + '</span><span style="gap:3px">' + PIN.replace('class="pin"', 'width="11" height="11"') + tr("pinned") + "</span>"
       + '<span><i style="background:rgba(20,164,77,.35)"></i>' + tr("fits") + '</span><span><i style="background:rgba(224,138,0,.4)"></i>' + tr("pushes others") + '</span><span><i style="background:rgba(217,45,32,.4)"></i>' + tr("clash") + "</span></span></div>"
       + (showNotes ? '<div class="notes">' + D.notes.map((x) => "<div><b>" + esc(x[0]) + ":</b> " + esc(x[1]) + "</div>").join("") + "</div>" : "")
@@ -540,12 +546,60 @@ td.free{min-width:190px;max-width:300px;vertical-align:middle}
     fit();
   }
   const cssEsc = (s) => (window.CSS && CSS.escape ? CSS.escape(s) : String(s).replace(/"/g, '\\"'));
+  // The board is as tall as the schedule, so the page itself scrolls (no box inside the page).
+  // Full screen pins it over the whole browser window and scrolls inside.
   function fit() {
     const wrap = document.getElementById("wrap"); if (!wrap) return;
-    const top = wrap.getBoundingClientRect().top;
-    const want = Math.min(wrap.scrollHeight + 4, D.maxHeight);
-    wrap.style.maxHeight = want + "px";
-    ST.height(Math.ceil(top + want + 16 + (menuFor ? 0 : 0)));
+    if (full) {
+      wrap.style.maxHeight = Math.max(200, window.innerHeight - wrap.getBoundingClientRect().top - 14) + "px";
+      wrap.style.setProperty("--st", "0px");
+      return;
+    }
+    wrap.style.maxHeight = "none";
+    const top = wrap.getBoundingClientRect().top + window.scrollY;
+    ST.height(Math.ceil(top + wrap.scrollHeight + 16));
+    stick();
+  }
+  // keep the header row visible while the page scrolls past the board
+  function stick() {
+    const wrap = document.getElementById("wrap"); if (!wrap || full) return;
+    try {
+      const fe = window.frameElement; if (!fe) return;
+      const pd = window.parent.document;
+      const hdr = pd.querySelector('[data-testid="stHeader"]');
+      const hb = hdr ? Math.max(0, hdr.getBoundingClientRect().bottom) : 0;
+      const top = fe.getBoundingClientRect().top + wrap.offsetTop;
+      const th = wrap.querySelector("thead"); const thH = th ? th.offsetHeight : 40;
+      const off = Math.max(0, Math.min(hb - top, wrap.scrollHeight - thH - 70));
+      wrap.style.setProperty("--st", Math.round(off) + "px");
+    } catch (e) { /* not same origin: no sticky header */ }
+  }
+  let stickHooked = false;
+  function hookStick() {
+    if (stickHooked) return;
+    try {
+      window.parent.document.addEventListener("scroll", stick, { capture: true, passive: true });
+      window.parent.addEventListener("resize", () => { stick(); if (full) fit(); });
+      stickHooked = true;
+    } catch (e) {}
+  }
+  function setFull(on) {
+    try {
+      const pd = window.parent.document, fe = window.frameElement;
+      if (!pd.getElementById("bm-fs-style")) {
+        const st = pd.createElement("style"); st.id = "bm-fs-style";
+        st.textContent = "iframe.bm-fs{position:fixed!important;inset:0!important;width:100vw!important;height:100vh!important;"
+          + "max-width:none!important;z-index:999990!important;border:0!important}";
+        pd.head.appendChild(st);
+      }
+      fe.classList.toggle("bm-fs", on);
+      pd.documentElement.style.overflow = on ? "hidden" : "";
+      full = on;
+    } catch (e) { full = false; if (on) toast(tr("Full screen is not available here"), true); }
+    document.documentElement.classList.toggle("fs", full);
+    document.body.classList.toggle("fs", full);
+    render();
+    if (!full) setTimeout(fit, 50);
   }
 
   // ---------------- drag and drop ----------------
@@ -610,8 +664,33 @@ td.free{min-width:190px;max-width:300px;vertical-align:middle}
     }
     autoScroll(e);
   }
+  let pScroller = null;
+  function parentScroller() {
+    if (pScroller && pScroller.isConnected) return pScroller;
+    try {
+      const pw = window.parent, fe = window.frameElement;
+      let el = fe.parentElement;
+      while (el && el !== pw.document.body) {
+        const oy = pw.getComputedStyle(el).overflowY;
+        if ((oy === "auto" || oy === "scroll") && el.scrollHeight > el.clientHeight + 2) return (pScroller = el);
+        el = el.parentElement;
+      }
+      return (pScroller = pw.document.scrollingElement);
+    } catch (e) { return null; }
+  }
   function autoScroll(e) {
     const w = document.getElementById("wrap"); if (!w) return;
+    if (!full) {   // the page scrolls, not the board: nudge the page when dragging near the top or bottom
+      try {
+        const fe = window.frameElement, pw = window.parent, sc = parentScroller();
+        const y = fe.getBoundingClientRect().top + e.clientY;
+        if (sc && y > pw.innerHeight - 60) sc.scrollTop += 18;
+        else if (sc && y < 110) sc.scrollTop -= 18;
+      } catch (_) {}
+      const r = w.getBoundingClientRect();
+      if (e.clientX > r.right - 40) w.scrollLeft += 14; else if (e.clientX < r.left + 40) w.scrollLeft -= 14;
+      return;
+    }
     const r = w.getBoundingClientRect(), pad = 40;
     if (e.clientY > r.bottom - pad) w.scrollTop += 14; else if (e.clientY < r.top + pad && e.clientY > r.top - 60) w.scrollTop -= 14;
     if (e.clientX > r.right - pad) w.scrollLeft += 14; else if (e.clientX < r.left + pad) w.scrollLeft -= 14;
@@ -746,7 +825,7 @@ td.free{min-width:190px;max-width:300px;vertical-align:middle}
   document.addEventListener("pointerup", () => endDrag(false));
   document.addEventListener("pointercancel", () => endDrag(true));
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") { if (drag) endDrag(true); closeMenu(); }
+    if (e.key === "Escape") { if (drag) endDrag(true); else if (!document.getElementById("menu") && full) setFull(false); closeMenu(); }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); undo(); }
   });
   document.addEventListener("click", (e) => {
@@ -755,6 +834,7 @@ td.free{min-width:190px;max-width:300px;vertical-align:middle}
     const b = e.target.closest("[data-act]"); if (!b) return;
     if (b.dataset.act === "undo") undo();
     if (b.dataset.act === "notes") { showNotes = !showNotes; render(); }
+    if (b.dataset.act === "full") setFull(!full);
     if (b.dataset.act === "clashes") {
       const c = allClashes(S)[0]; if (!c) return;
       const el = document.querySelector('[data-id="' + cssEsc(c.id) + '"]');
@@ -781,7 +861,7 @@ td.free{min-width:190px;max-width:300px;vertical-align:middle}
       day: data.day, tables: data.tables, tz: data.tz, date: data.date, rows: data.rows, sessions: data.sessions,
       ks: data.rows.filter((r) => r.kind === "slot").map((r) => r.k), slotByK: {}, startups: {}, hosts: {},
       polOk: toSet(data.polOk), polCap: data.polCap || 1, polOn: !!data.polOn, polPrior: data.polPrior || {}, notes: data.notes || [],
-      maxHeight: data.maxHeight || 900, names: data.names || {}, lang: data.lang || "en",
+      names: data.names || {}, lang: data.lang || "en",
     };
     data.rows.forEach((r) => { if (r.kind === "slot") D.slotByK[r.k] = r; });
     data.startups.forEach((s) => (D.startups[s.name] = { avail: toSet(s.avail), priority: s.priority, presenter: s.presenter || "", no: toSet(s.no), pref: toSet(s.pref) }));
@@ -790,6 +870,8 @@ td.free{min-width:190px;max-width:300px;vertical-align:middle}
     S = { meetings: data.meetings || [], parked: data.parked || [], polish: data.polish || [], statuses: data.statuses || {} };
     version = data.version; hist.length = 0;
     fillList();
+    hookStick();
+    if (full) { try { window.frameElement.classList.add("bm-fs"); } catch (e) {} }
     render();
   });
   // test hook: same logic as a pointer drop

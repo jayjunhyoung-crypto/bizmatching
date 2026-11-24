@@ -179,6 +179,7 @@ S = {
     "m_avg": ("Avg per startup", "스타트업당 평균"),
     "m_pol": ("Pitch polishing", "피치 폴리싱"),
     "m_clash": ("Clashes", "충돌"),
+    "how_board": ("How it works", "사용법"),
     "board_cap": ("Drag a meeting onto another table or time. Green fits, amber pushes the meetings in the way to the "
                   "nearest free time, red is a clash. Click a meeting to set its status, pin it or unschedule it. "
                   "Pinned meetings cannot be dragged or pushed and stay when you generate again. ★ marks a priority "

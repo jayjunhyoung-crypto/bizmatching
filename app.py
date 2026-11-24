@@ -2107,7 +2107,7 @@ def board_payload(day, cfg, slots, startups, hosts, r) -> dict:
         "polOn": day in cfg.pol_days or bool(day_pol),
         "polOk": [z.k for z in ds if cfg.polish_ok(z)], "polCap": max(1, cfg.pol_cap),
         "polPrior": dict(prior), "statuses": dict(ss().statuses),
-        "notes": attendance_notes(cfg, startups), "maxHeight": 880,
+        "notes": attendance_notes(cfg, startups),
         "names": {k_: (cfg.names or {}).get(k_) or T(f"nm_{k_}") for k_ in DEFAULT_NAMES},
         "lang": lang(),
     }
@@ -2435,7 +2435,10 @@ def results_tab():
     hosts, _ = parse_parties(r["h_df"], "host", cfg.labels)
     now = now_for(cfg)
 
-    day = st.radio(T("day"), list(range(len(cfg.days))), format_func=cfg.day_title, horizontal=True, key="day_sel")
+    dc, hc = st.columns([6, 1], vertical_alignment="bottom")
+    day = dc.radio(T("day"), list(range(len(cfg.days))), format_func=cfg.day_title, horizontal=True, key="day_sel")
+    with hc.popover(T("how_board"), use_container_width=True):
+        st.markdown(T("board_cap"))
     key = f"board_{r['id']}_{day}"
     apply_board(r, cfg, slots, startups, hosts, day, s.get(key))
 
@@ -2453,6 +2456,8 @@ def results_tab():
     for m in meetings:
         counts[m.startup] += 1
     att = [x for x in startups if not x.absent]
+    BOARD(data=board_payload(day, cfg, slots, startups, hosts, r), key=key, default=None)
+
     c = st.columns(5)
     c[0].metric(T("m_meetings"), len(meetings), T("unplaced", n=len(parked)) if parked else None,
                 delta_color="inverse")
@@ -2460,9 +2465,6 @@ def results_tab():
     c[2].metric(T("m_avg"), f"{len(meetings) / max(1, len(att)):.1f}")
     c[3].metric(T("m_pol"), len(polish) if polish else T("off"))
     c[4].metric(T("m_clash"), len(hard))
-
-    st.caption(T("board_cap"))
-    BOARD(data=board_payload(day, cfg, slots, startups, hosts, r), key=key, default=None)
 
     if hard:
         with st.expander(T("clashes_exp", n=len(hard)), expanded=False):
@@ -2516,6 +2518,8 @@ def main():
         q = st.query_params.get("lang", "en")
         ss().lang = q if q in LANGS else "en"
     init_state()
+    st.markdown("<style>[data-testid='stMainBlockContainer'],.block-container{max-width:100%;"
+                "padding-left:2rem;padding-right:2rem;padding-top:2.5rem}</style>", unsafe_allow_html=True)
     h1, h2 = st.columns([5, 1.3], vertical_alignment="bottom")
     h1.title(APP_TITLE)
     h2.radio(T("language"), list(LANGS), format_func=LANGS.get, key="lang", horizontal=True, on_change=cb_lang)
