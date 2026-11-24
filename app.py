@@ -1458,6 +1458,9 @@ def parse_paste(raw: str):
 def guess_field(header: str, role: str, taken: set) -> str:
     cols = STARTUP_COLS if role == "startup" else HOST_COLS
     n = norm(header)
+    own = next((c for c in cols if norm(col_label(role, c)) == n), None)
+    if own and own not in taken:
+        return own
     cand = ALIASES.get(n) if ALIASES.get(n) in cols else next((c for c in cols if c.lower() == n), None)
     if not cand:
         for words, f in GUESS:
@@ -1465,6 +1468,29 @@ def guess_field(header: str, role: str, taken: set) -> str:
                 cand = f
                 break
     return cand if cand and cand not in taken else "(ignore)"
+
+
+DEFAULT_COL_LABELS = {"startup": {c: c for c in STARTUP_COLS},
+                      "host": {**{c: c for c in HOST_COLS}, "Name": "Organisation"}}
+
+
+def col_label(role: str, col: str) -> str:
+    """Heading shown in the participant tables. Renaming only changes the display, never the data."""
+    return (st.session_state.get(f"lbl_{role}_{col}") or "").strip() or DEFAULT_COL_LABELS[role][col]
+
+
+def labelled(role: str, config: dict) -> dict:
+    for col, cc in config.items():
+        cc["label"] = col_label(role, col)
+    return config
+
+
+def rename_popover(role: str, where):
+    cols = STARTUP_COLS if role == "startup" else HOST_COLS
+    with where.popover("Rename columns"):
+        st.caption("Change the headings to the words your team uses. Only the display changes, the data stays.")
+        for c in cols:
+            st.text_input(DEFAULT_COL_LABELS[role][c], key=f"lbl_{role}_{c}")
 
 
 def map_key(role: str, i: int, header: str) -> str:
@@ -1490,6 +1516,10 @@ def set_frames(days, startups, hosts, cfg: dict | None = None):
     s.interval = int(c.get("interval", 20))
     buf = float(c.get("buffer", 0) or 0)
     s.buffer_m, s.buffer_s = int(buf), int(round((buf - int(buf)) * 60))
+    labels_ = c.get("col_labels", {}) or {}
+    for role_, cols_ in (("startup", STARTUP_COLS), ("host", HOST_COLS)):
+        for c_ in cols_:
+            s[f"lbl_{role_}_{c_}"] = (labels_.get(role_, {}) or {}).get(c_) or DEFAULT_COL_LABELS[role_][c_]
     names = c.get("names", {}) or {}
     for k_ in DEFAULT_NAMES:
         s[f"nm_{k_}"] = names.get(k_) or DEFAULT_NAMES[k_]
@@ -1563,7 +1593,10 @@ def project_json() -> str:
                    "tables": cfg.tables, "tz": cfg.tz, "sessions": s.sessions_txt,
                    "pol_on": bool(s.pol_on), "pol_days": list(s.pol_days),
                    "pol_start": s.t_pol_s.strftime("%H:%M"), "pol_end": s.t_pol_e.strftime("%H:%M"),
-                   "pol_cap": int(s.pol_cap), "names": cfg.names},
+                   "pol_cap": int(s.pol_cap), "names": cfg.names,
+                   "col_labels": {role_: {c_: col_label(role_, c_) for c_ in cols_
+                                          if col_label(role_, c_) != DEFAULT_COL_LABELS[role_][c_]}
+                                  for role_, cols_ in (("startup", STARTUP_COLS), ("host", HOST_COLS))}},
         "days": cfg.days,
         "startups": s.s_df.to_dict("records"),
         "hosts": s.h_df.to_dict("records"),
@@ -1851,7 +1884,8 @@ def setup_tab():
 
     st.divider()
     st.subheader("Startups")
-    u1, u2 = st.columns([3, 1])
+    u1, u2, u3 = st.columns([3, 1, 1])
+    rename_popover("startup", u3)
     u1.file_uploader("Import startups (CSV or Excel)", type=["csv", "xlsx", "xls"], key="up_startup",
                      on_change=cb_upload, args=("startup",), label_visibility="collapsed")
     u2.download_button("Startup template", sample_frames()[1].to_csv(index=False).encode("utf-8-sig"),
@@ -1859,7 +1893,7 @@ def setup_tab():
     paste_box("startup")
     s.s_df = st.data_editor(
         s.s_base, key=f"s_{s.ver}", num_rows="dynamic", hide_index=True,
-        column_config={
+        column_config=labelled("startup", {
             "Name": st.column_config.TextColumn(required=True, width="medium"),
             "Domain": st.column_config.TextColumn(help="One or more, comma separated. Hosts can exclude domains"),
             "Days": st.column_config.TextColumn(
@@ -1875,10 +1909,11 @@ def setup_tab():
                                                                help="Gets a pitch polishing slot each polishing day"),
             "Max Meetings": st.column_config.NumberColumn(min_value=0, step=1, format="%d",
                                                           help="Blank = no limit"),
-        })
+        }))
 
     st.subheader("Hosts (investors, corporates, agencies)")
-    u1, u2 = st.columns([3, 1])
+    u1, u2, u3 = st.columns([3, 1, 1])
+    rename_popover("host", u3)
     u1.file_uploader("Import hosts (CSV or Excel)", type=["csv", "xlsx", "xls"], key="up_host",
                      on_change=cb_upload, args=("host",), label_visibility="collapsed")
     u2.download_button("Host template", sample_frames()[2].to_csv(index=False).encode("utf-8-sig"),
@@ -1886,8 +1921,8 @@ def setup_tab():
     paste_box("host")
     s.h_df = st.data_editor(
         s.h_base, key=f"h_{s.ver}", num_rows="dynamic", hide_index=True,
-        column_config={
-            "Name": st.column_config.TextColumn("Organisation", required=True, width="medium"),
+        column_config=labelled("host", {
+            "Name": st.column_config.TextColumn(required=True, width="medium"),
             "Contact": st.column_config.TextColumn(help="Person attending, e.g. Raymond"),
             "Type": st.column_config.SelectboxColumn(options=HOST_TYPES, default="Investor"),
             "Days": st.column_config.TextColumn(help="Blank = all days. Day 1 for one day. Not here = not attending"),
@@ -1897,7 +1932,7 @@ def setup_tab():
             "Excluded Domains": st.column_config.TextColumn(
                 help="Never matched with startups in these domains, e.g. K-Beauty, Hardware", width="medium"),
             "Max Meetings": st.column_config.NumberColumn(min_value=0, step=1, format="%d"),
-        })
+        }))
 
     st.divider()
     a, b, c, d = st.columns(4)
