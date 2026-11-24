@@ -23,6 +23,7 @@ import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 from i18n import COL_LABELS, LANGS, SUMMARY_KO, T, lang
+from store import Store
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.cell.rich_text import CellRichText, TextBlock
@@ -1591,10 +1592,16 @@ def frames_hash(cfg: EventConfig, sdf: pd.DataFrame, hdf: pd.DataFrame) -> str:
     return hashlib.sha1(blob.encode()).hexdigest()
 
 
-def project_json() -> str:
+def project_json(live: bool = True) -> str:
+    return json.dumps(project_dict(live), default=str, indent=1)
+
+
+def project_dict(live: bool = True) -> dict:
+    """Everything needed to restore the event. live=False leaves out statuses and notes, which the team
+    workspace stores per item."""
     s = ss()
     cfg = current_cfg()
-    return json.dumps({
+    d = {
         "app": APP_TITLE, "version": 1,
         "config": {"name": cfg.name, "start": fmt(cfg.start), "end": fmt(cfg.end),
                    "interval": cfg.interval, "buffer": cfg.buffer, "lunch_on": bool(s.lunch_on),
@@ -1609,10 +1616,13 @@ def project_json() -> str:
         "days": cfg.days,
         "startups": s.s_df.to_dict("records"),
         "hosts": s.h_df.to_dict("records"),
-        "result": s.result and {k: v for k, v in s.result.items() if k in ("meetings", "polish", "parked", "packing", "status", "hash")},
-        "statuses": s.statuses,
-        "pol_notes": s.get("pol_notes", {}),
-    }, default=str, indent=1)
+        "result": s.result and {k: v for k, v in s.result.items()
+                                if k in ("meetings", "polish", "parked", "packing", "status", "hash")},
+    }
+    if live:
+        d["statuses"] = s.statuses
+        d["pol_notes"] = s.get("pol_notes", {})
+    return d
 
 
 # Callbacks (run before the script body, so they may reset widget state)
@@ -1707,35 +1717,282 @@ def paste_box(role: str):
         b.button(T("import_n", n=len(df)), key=f"pbtn_{role}", type="primary", on_click=cb_paste, args=(role,))
 
 
+def load_project(data: dict, live: bool = True) -> None:
+    """Restore an event from project_dict() output (a project file or the team workspace)."""
+    days = pd.DataFrame({"Label": [d["label"] for d in data["days"]],
+                         "Date": [date.fromisoformat(d["date"]) if d.get("date") else None
+                                  for d in data["days"]]})
+    set_frames(days, clean_frame(pd.DataFrame(data.get("startups", [])), "startup"),
+               clean_frame(pd.DataFrame(data.get("hosts", [])), "host"), data.get("config"))
+    res = data.get("result")
+    if res and res.get("meetings"):
+        res = dict(res)
+        cfg = current_cfg()
+        res["cfg"] = asdict(cfg)
+        res["s_df"], res["h_df"] = ss().s_df, ss().h_df
+        res["hash"] = frames_hash(cfg, ss().s_df, ss().h_df)
+        res["id"] = int(_time.time() * 1000)
+        res.setdefault("message", "")
+        res.setdefault("wall", 0.0)
+        slots_ = build_slots(cfg)
+        st_, _ = parse_parties(ss().s_df, "startup", cfg.labels)
+        ho_, _ = parse_parties(ss().h_df, "host", cfg.labels)
+        res["issues"] = validate(cfg, slots_, st_, ho_, [Meeting(**m) for m in res["meetings"]],
+                                 res.get("packing", "soft"), [Polish(**p) for p in res.get("polish", [])])
+        ss().result = res
+    else:
+        ss().result = None
+    if live:
+        ss().statuses = data.get("statuses", {}) or {}
+        ss().pol_notes = data.get("pol_notes", {}) or {}
+
+
 def cb_project():
     f = ss().get("up_project")
     if not f:
         return
     try:
-        data = json.loads(f.getvalue().decode("utf-8"))
-        days = pd.DataFrame({"Label": [d["label"] for d in data["days"]],
-                             "Date": [date.fromisoformat(d["date"]) if d.get("date") else None
-                                      for d in data["days"]]})
-        set_frames(days, clean_frame(pd.DataFrame(data.get("startups", [])), "startup"),
-                   clean_frame(pd.DataFrame(data.get("hosts", [])), "host"), data.get("config"))
-        res = data.get("result")
-        if res and res.get("meetings"):
-            cfg = current_cfg()
-            res["cfg"] = asdict(cfg)
-            res["s_df"], res["h_df"] = ss().s_df, ss().h_df
-            res["hash"] = frames_hash(cfg, ss().s_df, ss().h_df)
-            res["id"] = int(_time.time())
-            res.setdefault("message", "Loaded from project file")
-            res.setdefault("wall", 0.0)
-            res.setdefault("issues", [])
-            ss().result = res
-        else:
-            ss().result = None
-        ss().statuses = data.get("statuses", {}) or {}
-        ss().pol_notes = data.get("pol_notes", {}) or {}
+        load_project(json.loads(f.getvalue().decode("utf-8")))
         ss().flash = ("success", T("f_loaded_project", f=f.name))
     except Exception as e:  # noqa: BLE001
         ss().flash = ("error", T("f_project_fail", e=e))
+
+
+# --------------------------------------------------------------------------------------
+# Team workspace: shared database + login (active when [database] url is in secrets)
+# --------------------------------------------------------------------------------------
+def _secret(section: str, key: str | None = None, default=None):
+    try:
+        sec = st.secrets[section]
+        return sec if key is None else sec.get(key, default)
+    except Exception:  # noqa: BLE001  (no secrets file, or section missing)
+        return default
+
+
+@st.cache_resource(show_spinner=False)
+def get_store(url: str) -> Store:
+    return Store(url)
+
+
+def store() -> Store | None:
+    url = _secret("database", "url")
+    if not url:
+        return None
+    try:
+        return get_store(url)
+    except Exception as e:  # noqa: BLE001
+        ss().db_error = str(e)
+        return None
+
+
+def auth_on() -> bool:
+    a = _secret("auth")
+    return bool(a) and bool(a.get("client_id") or any(isinstance(v, dict) for v in dict(a).values()))
+
+
+def me() -> str:
+    return ss().get("user_name") or "someone"
+
+
+def _user_field(name: str) -> str:
+    try:
+        return str(getattr(st.user, name, None) or st.user.get(name) or "")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def email_allowed(email: str) -> bool:
+    doms = [str(d).lower().lstrip("@") for d in (_secret("access", "allowed_domains") or [])]
+    emails = [str(e).lower() for e in (_secret("access", "allowed_emails") or [])]
+    if not doms and not emails:
+        return True
+    return email in emails or email.split("@")[-1] in doms
+
+
+def gate() -> bool:
+    """Login (Google) or team passcode before the shared workspace opens."""
+    if not store():
+        return True
+    if auth_on():
+        if not getattr(st.user, "is_logged_in", False):
+            st.info(T("login_needed"))
+            st.button(T("login_google"), type="primary", on_click=st.login)
+            return False
+        email = _user_field("email").lower()
+        if not email_allowed(email):
+            st.error(T("not_allowed", email=email))
+            st.button(T("logout"), on_click=st.logout)
+            return False
+        ss().user_name = _user_field("name") or email
+        return True
+    pc = _secret("access", "passcode")
+    if (pc and not ss().get("pass_ok")) or not ss().get("user_name"):
+        with st.form("enter_ws"):
+            v = st.text_input(T("passcode"), type="password") if pc and not ss().get("pass_ok") else None
+            n = st.text_input(T("your_name"), value=ss().get("user_name", ""))
+            if st.form_submit_button(T("enter"), type="primary"):
+                if (v is None or v == str(pc)) and n.strip():
+                    ss().pass_ok, ss().user_name = True, n.strip()
+                    st.rerun()
+                st.error(T("pass_wrong"))
+        return False
+    return True
+
+
+def canon(d: dict) -> str:
+    return json.dumps(d, sort_keys=True, default=str)
+
+
+def items_map() -> dict:
+    m = {(k, "status"): v for k, v in ss().statuses.items() if v in STATUSES}
+    m.update({(k, "note"): v for k, v in ss().get("pol_notes", {}).items() if v})
+    return m
+
+
+def open_event(eid: str) -> bool:
+    """Load a shared event into this session (safe to call from callbacks and before widgets render)."""
+    S = store()
+    row = S.get(eid) if S else None
+    if not row or row.get("archived"):
+        ss().flash = ("error", T("ws_missing"))
+        ss().event_id = None
+        return False
+    load_project(json.loads(row["data"]), live=False)
+    items = S.items(eid)
+    ss().statuses = {r["item_id"]: r["value"] for r in items if r["kind"] == "status" and r["value"] in STATUSES}
+    ss().pol_notes = {r["item_id"]: r["value"] for r in items if r["kind"] == "note" and r["value"]}
+    ss().items_synced = items_map()
+    ss().items_t = max([r["updated_at"] for r in items], default=0.0)
+    ss().event_id, ss().ev_version = eid, row["version"]
+    ss().ev_by, ss().ev_at = row.get("updated_by") or "", row.get("updated_at") or 0
+    ss().saved_hash = None          # the first run after loading sets the baseline
+    ss().ev_pick = eid
+    return True
+
+
+def cb_pick():
+    if ss().get("ev_pick") and ss().ev_pick != ss().get("event_id"):
+        open_event(ss().ev_pick)
+
+
+def cb_new():
+    S, s = store(), ss()
+    name = (s.get("new_ev_name") or "").strip() or "New matching event"
+    src = s.get("new_ev_from", "blank")
+    if src == "copy":
+        d = project_dict(live=False)
+    else:
+        set_frames(*(sample_frames() if src == "sample" else blank_frames()))
+        s.result, s.statuses, s.pol_notes = None, {}, {}
+        d = project_dict(live=False)
+    d["config"]["name"] = name
+    eid, _ = S.create(name, canon(d), me())
+    open_event(eid)
+    s.new_ev_name = ""
+    s.flash = ("success", T("ws_created", name=name))
+
+
+def cb_archive():
+    S, eid = store(), ss().get("event_id")
+    if S and eid and ss().get("del_confirm"):
+        S.archive(eid, me())
+        ss().event_id, ss().del_confirm = None, False
+
+
+def workspace_bar():
+    S = store()
+    if not S:
+        if _secret("database", "url"):
+            st.error(T("ws_db_error", e=ss().get("db_error", "")))
+        else:
+            st.caption(T("ws_off"))
+        return
+    evs = S.list_events()
+    names = {e["id"]: e["name"] or "Untitled" for e in evs}
+    if not evs or ss().get("event_id") not in names:
+        return
+    ss().ev_pick = ss().event_id
+    c1, c2, c3, c4 = st.columns([3, 1, 1, 2.2], vertical_alignment="bottom")
+    c1.selectbox(T("ws_event"), list(names), format_func=lambda i: names.get(i, "?"), key="ev_pick",
+                 on_change=cb_pick)
+    with c2.popover(T("ws_new"), use_container_width=True):
+        st.text_input(T("ws_new_name"), key="new_ev_name")
+        st.radio("from", ["blank", "sample", "copy"], key="new_ev_from", label_visibility="collapsed",
+                 format_func=lambda o: T("ws_from_" + o))
+        st.button(T("ws_create"), type="primary", on_click=cb_new)
+    with c3.popover(T("ws_more"), use_container_width=True):
+        st.checkbox(T("ws_delete_confirm"), key="del_confirm")
+        st.button(T("ws_delete"), on_click=cb_archive, disabled=not ss().get("del_confirm"))
+    when = datetime.fromtimestamp(ss().get("ev_at") or _time.time(), ZoneInfo(ss().get("tz") or "UTC"))
+    c4.caption(T("ws_saved", when=when.strftime("%d %b %H:%M"), who=ss().get("ev_by") or "-") + "  \n"
+               + T("ws_user", who=me()))
+    if auth_on():
+        c4.button(T("logout"), on_click=st.logout)
+
+
+def autosave():
+    """Runs at the end of every rerun: saves the event if it changed, then pushes status / note changes."""
+    S, eid = store(), ss().get("event_id")
+    if not S or not eid:
+        return
+    d = project_dict(live=False)
+    txt = canon(d)
+    h = hashlib.sha1(txt.encode()).hexdigest()
+    if ss().get("saved_hash") is None:
+        ss().saved_hash = h
+    elif h != ss().saved_hash:
+        v = S.save(eid, d["config"]["name"], txt, ss().ev_version, me())
+        if v:
+            ss().ev_version, ss().saved_hash, ss().ev_by, ss().ev_at = v, h, me(), _time.time()
+        else:
+            row = S.get(eid)
+            if row and canon(json.loads(row["data"])) == txt:
+                ss().ev_version, ss().saved_hash = row["version"], h
+            else:
+                ss().pending_reload = ("conflict", (row or {}).get("updated_by") or "")
+                st.rerun()
+    cur, old = items_map(), ss().get("items_synced", {})
+    rows = [(k[0], k[1], v) for k, v in cur.items() if old.get(k) != v] + \
+           [(k[0], k[1], "") for k in old if k not in cur]
+    if rows:
+        S.put_items(eid, rows, me())
+        ss().items_synced = cur
+
+
+@st.fragment(run_every=10)
+def live_sync():
+    """Every 10 s: pick up other people's saves and status changes."""
+    S, eid = store(), ss().get("event_id")
+    if not S or not eid:
+        return
+    h = S.head(eid)
+    if not h or h.get("archived"):
+        return
+    if h["version"] > ss().get("ev_version", 0):
+        ss().pending_reload = ("remote", h.get("updated_by") or "")
+        st.rerun(scope="app")
+    new = S.items(eid, ss().get("items_t", 0.0))
+    if not new:
+        return
+    ss().items_t = max(r["updated_at"] for r in new)
+    synced, changed = ss().setdefault("items_synced", {}), False
+    for r in new:
+        target = ss().statuses if r["kind"] == "status" else ss().pol_notes
+        val = r["value"]
+        if target.get(r["item_id"], "") != val:
+            changed = True
+            if val:
+                target[r["item_id"]] = val
+            else:
+                target.pop(r["item_id"], None)
+        if val:
+            synced[(r["item_id"], r["kind"])] = val
+        else:
+            synced.pop((r["item_id"], r["kind"]), None)
+    if changed:
+        if ss().get("result"):
+            ss().result["version"] = f"py-sync-{int(_time.time() * 1000)}"
+        st.rerun(scope="app")
 
 
 # --------------------------------------------------------------------------------------
@@ -1958,8 +2215,9 @@ def setup_tab():
 
     st.divider()
     a, b, c, d = st.columns(4)
-    a.button(T("load_sample"), on_click=cb_sample)
-    b.button(T("start_blank"), on_click=cb_blank)
+    if not store():   # in the team workspace, new events come from the New event menu instead
+        a.button(T("load_sample"), on_click=cb_sample)
+        b.button(T("start_blank"), on_click=cb_blank)
     c.download_button(T("save_project"), project_json(), "bizmatch_project.json", "application/json")
     d.file_uploader(T("open_project"), type=["json"], key="up_project", on_change=cb_project,
                     label_visibility="collapsed")
@@ -2159,6 +2417,29 @@ def main():
     h1.title(APP_TITLE)
     h2.radio(T("language"), list(LANGS), format_func=LANGS.get, key="lang", horizontal=True, on_change=cb_lang)
     st.caption(T("app_caption"))
+    if not gate():
+        return
+    S = store()
+    if S:
+        pend = ss().pop("pending_reload", None)
+        if pend and ss().get("event_id"):
+            open_event(ss().event_id)
+            msg = T("ws_conflict" if pend[0] == "conflict" else "ws_remote", who=pend[1] or "?")
+            if pend[0] == "conflict":
+                ss().flash = ("warning", msg)
+            elif pend[1] != me():
+                st.toast(msg)
+        if not ss().get("event_id"):
+            evs = S.list_events()
+            if evs:
+                open_event(evs[0]["id"])
+            else:
+                set_frames(*sample_frames())
+                ss().result, ss().statuses, ss().pol_notes = None, {}, {}
+                d = project_dict(live=False)
+                eid, _ = S.create(d["config"]["name"], canon(d), me())
+                open_event(eid)
+    workspace_bar()
     flash = ss().pop("flash", None)
     if flash:
         getattr(st, flash[0])(flash[1])
@@ -2169,6 +2450,9 @@ def main():
         generate_tab()
     with t3:
         results_tab()
+    if S:
+        autosave()
+        live_sync()
 
 
 if __name__ == "__main__":

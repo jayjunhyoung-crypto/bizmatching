@@ -97,17 +97,85 @@ Your browser will open at http://localhost:8501. The app starts with a sample ev
 
 1. The code lives in **github.com/jayjunhyoung-crypto/bizmatching** (branch `main`, file `app.py`).
 2. Go to **https://share.streamlit.io** and sign in with GitHub.
-3. Click **Create app**, choose **Deploy a public app from GitHub**, and select `jayjunhyoung-crypto/bizmatching`, branch `main` and main file `app.py`. Pick an app URL such as `ksc-bizmatch`.
+3. Click **Create app**, choose **Deploy a public app from GitHub**, and select `jayjunhyoung-crypto/bizmatching`, branch `main` and main file `app.py`. Pick an app URL such as `bizmatching`.
 4. Open **Advanced settings** and set **Python version** to 3.12. The default may be older.
 5. Click **Deploy**. The first build installs OR-Tools and takes a few minutes. You get a URL like `https://<name>.streamlit.app`.
 6. **Keep it inside the team.** In the app, click **Share** at the top right (or open App settings and go to **Sharing**), make the app private and invite your colleagues by email. Viewers sign in to open it. A free account can have one private app.
 7. To update the app later, push to `main` and it redeploys automatically.
 
 Notes
-- Participant data only lives in the browser session while you use the app. Nothing is stored on the server, so use **Save project** to keep your work.
+- Without a team database (below), participant data only lives in the browser tab while you use the app, so use **Save project** to keep your work.
 - Free apps go to sleep after a period of inactivity. The first visit after that takes a short while to wake the app up.
 - Light or dark mode: open ⋮ at the top right, then Settings, then Theme.
 - Set the time zone in Tab 1. Streamlit Cloud servers run on UTC, and the live statuses use the time zone you choose.
+
+## Team workspace (shared events and login)
+
+With a database connected, everyone on the team opens the same events. Edits save automatically,
+the board shows who saved last, and on the event day several people can update statuses on the live board
+at once. Each browser checks for other people's changes every 10 seconds.
+
+How saving works
+- The setup and schedule of an event are saved as one record with a version number. If two people save at
+  the same moment, the second person gets the newer version loaded and a message to redo their last change.
+- Meeting statuses and polishing notes are saved one by one, so two people marking different meetings never
+  overwrite each other.
+- **Manage → Delete** hides an event for the whole team.
+
+### 1. Database (Supabase, free)
+
+1. Create a project at **https://supabase.com** (region Singapore). Write down the database password.
+2. Click **Connect** at the top of the project, choose the **Session pooler** connection string
+   (Streamlit Cloud needs the pooler because it has no IPv6), and replace `[YOUR-PASSWORD]` with your password.
+3. That's it. The app creates its two tables (`bm_events`, `bm_event_items`) on first start and turns on
+   row level security so they are not readable through Supabase's public API.
+
+Free Supabase projects pause after a week with no use. Open the Supabase dashboard and click **Restore** if
+that happens. Any Postgres works, for example Neon.
+
+### 2. Google login (recommended)
+
+1. Open **https://console.cloud.google.com**, create a project, then **APIs & Services → OAuth consent screen**.
+   If your company uses Google Workspace, choose **Internal** so only company accounts can sign in.
+2. **Credentials → Create credentials → OAuth client ID → Web application**.
+   Add the authorised redirect URI `https://bizmatching.streamlit.app/oauth2callback`
+   (and `http://localhost:8501/oauth2callback` for local testing).
+3. Copy the client ID and client secret.
+
+### 3. Paste the secrets into Streamlit Cloud
+
+Open the app on **https://share.streamlit.io**, then **⋮ → Settings → Secrets**, and paste:
+
+```toml
+[database]
+url = "postgresql://postgres.abcdefgh:YOUR_PASSWORD@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres"
+
+[auth]
+redirect_uri = "https://bizmatching.streamlit.app/oauth2callback"
+cookie_secret = "any long random text, e.g. from: python -c 'import secrets; print(secrets.token_hex(32))'"
+client_id = "1234-abc.apps.googleusercontent.com"
+client_secret = "GOCSPX-..."
+server_metadata_url = "https://accounts.google.com/.well-known/openid-configuration"
+
+[access]
+allowed_domains = ["yourcompany.com"]     # anyone with an email at these domains may sign in
+allowed_emails = ["partner@gmail.com"]    # plus these individual addresses
+```
+
+Save, and the app restarts with the team workspace. Leave out `[access]` to let any Google account in.
+
+**Quicker start without Google**: leave out `[auth]` and set a shared passcode instead. Each person types the
+passcode and their name. This is fine for trying it out, but Google login is safer for real participant data.
+
+```toml
+[database]
+url = "postgresql://..."
+
+[access]
+passcode = "choose-a-passcode"
+```
+
+For local runs put the same content in `.streamlit/secrets.toml` (it is git ignored). Never commit secrets.
 
 ## Tuning
 
