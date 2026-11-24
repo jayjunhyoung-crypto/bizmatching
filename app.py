@@ -38,6 +38,7 @@ from ortools.sat.python import cp_model
 # Constants
 # --------------------------------------------------------------------------------------
 APP_TITLE = "BizMatch Scheduler"
+SUMMARY = components.declare_component("bizmatch_summary", path=str(Path(__file__).parent / "summary"))
 BOARD = components.declare_component("bizmatch_board", path=str(Path(__file__).parent / "board"))
 STATUSES = ["Scheduled", "Ongoing", "Done", "No-Show"]
 STATUS_CHOICES = ["Auto"] + STATUSES
@@ -2089,6 +2090,60 @@ def apply_board(r, cfg, slots, startups, hosts, day, val) -> bool:
     return True
 
 
+def summary_payload(cfg, startups, hosts, r) -> dict:
+    hcol = host_colors(hosts)
+    days = []
+    for d in range(len(cfg.days)):
+        dd = cfg.day_date(d)
+        days.append({"title": cfg.days[d]["label"] + (f" · {dd:%a %d %b}" if dd else ""),
+                     "short": cfg.day_short(d), "date": str(dd or "")})
+    meetings = [{"id": f"{m['startup']}|{m['host']}", "day": m["day"], "start": m["start"], "end": m["end"],
+                 "startup": m["startup"], "host": m["host"], "table": m["table"]} for m in r["meetings"]]
+    polish = [{"id": p.pid, "day": p.day, "start": p.start, "end": p.end, "startup": p.startup, "n": p.n,
+               "note": ss().get("pol_notes", {}).get(p.pid, "")} for p in [Polish(**x) for x in r.get("polish", [])]]
+    tz_short = (cfg.tz or "").split("/")[-1].replace("_", " ")
+    sts = {k: v for k, v in ss().statuses.items() if v in STATUSES}
+    version = hashlib.sha1(json.dumps([sts, meetings, polish], sort_keys=True, default=str).encode()).hexdigest()[:16]
+    return {
+        "version": version, "lang": lang(), "tz": cfg.tz, "tzShort": tz_short, "days": days,
+        "startups": [{"name": x.name, "priority": x.priority, "presenter": x.presenter, "days": sorted(x.days)}
+                     for x in startups],
+        "hosts": [{"name": h.name, "contact": h.contact, "kind": h.kind, "color": hcol[h.name], "days": sorted(h.days)}
+                  for h in hosts],
+        "meetings": meetings, "polish": polish, "statuses": sts,
+    }
+
+
+def apply_summary(r, val) -> bool:
+    """Status changes made on the summary dashboard."""
+    if not isinstance(val, dict) or not val.get("version") or val["version"] in r.get("sum_applied", []):
+        return False
+    r.setdefault("sum_applied", []).append(val["version"])
+    for k, v in (val.get("set") or {}).items():
+        if v in STATUSES:
+            ss().statuses[k] = v
+        else:
+            ss().statuses.pop(k, None)
+    r["version"] = f"py-{int(_time.time() * 1000)}"     # the board picks up the new statuses
+    return True
+
+
+def summary_tab():
+    s = ss()
+    r = s.result
+    if not r or not r.get("meetings"):
+        st.info(T("gen_first"))
+        return
+    cfg = EventConfig(**r["cfg"])
+    startups, _ = parse_parties(r["s_df"], "startup", cfg.labels)
+    hosts, _ = parse_parties(r["h_df"], "host", cfg.labels)
+    key = f"sum_{r['id']}"
+    if apply_summary(r, s.get(key)):
+        st.rerun()
+    st.caption(T("sum_cap"))
+    SUMMARY(data=summary_payload(cfg, startups, hosts, r), key=key, default=None)
+
+
 I18N_KEYS = set(__import__("i18n").S)
 
 
@@ -2387,12 +2442,6 @@ def results_tab():
                            "Presenter": st.column_config.TextColumn(T("pc_presenter"), help=T("presenter_help")),
                            "Focus / Mentor Note": st.column_config.TextColumn(T("pc_note"), width="large")})
 
-    st.subheader(T("summary_s"))
-    st.dataframe(ko_headers(startup_summary(cfg, startups, hosts, meetings, s.statuses, now, polish=polish)),
-                 hide_index=True)
-    with st.expander(T("summary_h")):
-        st.dataframe(ko_headers(host_summary(cfg, hosts, meetings)), hide_index=True)
-
     stamp = now.strftime("%Y%m%d_%H%M")
     a, b = st.columns(2)
     a.download_button(T("dl_excel"),
@@ -2443,13 +2492,15 @@ def main():
     flash = ss().pop("flash", None)
     if flash:
         getattr(st, flash[0])(flash[1])
-    t1, t2, t3 = st.tabs([T("tab1"), T("tab2"), T("tab3")])
+    t1, t2, t3, t4 = st.tabs([T("tab1"), T("tab2"), T("tab3"), T("tab4")])
     with t1:
         setup_tab()
     with t2:
         generate_tab()
     with t3:
         results_tab()
+    with t4:
+        summary_tab()
     if S:
         autosave()
         live_sync()

@@ -10,6 +10,11 @@ S = {
     "tab1": ("1. Event & Participants", "1. 행사 & 참가자"),
     "tab2": ("2. Generate", "2. 일정 생성"),
     "tab3": ("3. Results & Live Board", "3. 결과 & 라이브 보드"),
+    "tab4": ("4. Summary", "4. 요약 대시보드"),
+    "sum_cap": ("Live overview of every meeting. Statuses follow the clock on event days; click any meeting to "
+                "mark it done or a no-show by hand. Search, filter and sort to find a startup or partner fast.",
+                "모든 미팅을 한눈에 보는 실시간 요약이에요. 행사 당일엔 시간에 맞춰 상태가 바뀌고, 미팅을 누르면 "
+                "완료나 노쇼를 직접 표시할 수 있어요. 검색, 필터, 정렬로 원하는 스타트업이나 파트너를 바로 찾을 수 있어요."),
     "language": ("Language", "언어"),
     # setup
     "event": ("Event", "행사"),

@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>BizMatch summary</title>
+<style>
+:root{--ink:#111827;--mut:#6b7280;--line:#e5e8ef;--bg:#fff;--zone:#f3f5f9;--panel:#fff;--cob:#1240e0;
+ --green:#12804a;--greenbg:#e5f5ec;--red:#c4291d;--redbg:#fde9e7;--blue:#1240e0;--bluebg:#e7edff;
+ --pink:#f4cccc;--yellow:#ffe599;--shadow:0 1px 2px rgba(16,24,40,.06);
+ font-family:"Source Sans Pro","Source Sans 3",Inter,system-ui,sans-serif}
+body.dark{--ink:#e8ebf3;--mut:#9aa3b8;--line:#283149;--bg:#0e1117;--zone:#171d2b;--panel:#121725;
+ --green:#4ad08a;--greenbg:rgba(74,208,138,.14);--red:#ff7a6e;--redbg:rgba(255,122,110,.14);--blue:#8aa6ff;--bluebg:rgba(138,166,255,.16);
+ --pink:#6b3d44;--yellow:#5f5226;--shadow:none}
+*{box-sizing:border-box}
+html,body{margin:0;background:transparent;color:var(--ink);font-size:13px}
+button,input,select{font:inherit;color:inherit}
+.top{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:2px 0 12px}
+.live{display:inline-flex;align-items:center;gap:7px;font-weight:600;color:var(--mut);font-variant-numeric:tabular-nums}
+.live i{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 0 0 rgba(18,128,74,.5);animation:pulse 2s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(18,128,74,.45)}70%{box-shadow:0 0 0 7px rgba(18,128,74,0)}100%{box-shadow:0 0 0 0 rgba(18,128,74,0)}}
+.spacer{flex:1}
+.seg{display:inline-flex;background:var(--zone);border-radius:9px;padding:3px;gap:2px}
+.seg button{border:0;background:transparent;border-radius:7px;padding:5px 12px;cursor:pointer;font-weight:600;color:var(--mut);white-space:nowrap}
+.seg button.on{background:var(--panel);color:var(--ink);box-shadow:var(--shadow),0 0 0 1px var(--line)}
+
+.kpis{display:grid;grid-template-columns:2.2fr repeat(5,1fr);gap:10px;margin-bottom:12px}
+.card{border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:12px 14px;box-shadow:var(--shadow);min-width:0}
+.card .lab{color:var(--mut);font-weight:600;font-size:12px;display:flex;align-items:center;gap:6px}
+.card .lab i{width:8px;height:8px;border-radius:50%;display:inline-block}
+.card .num{font-size:28px;font-weight:700;line-height:1.15;margin-top:4px;font-variant-numeric:tabular-nums}
+.card .num small{font-size:13px;color:var(--mut);font-weight:600;margin-left:4px}
+.card.main .row{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.card.main .pct{font-weight:700;color:var(--green);font-size:15px}
+.stack{display:flex;height:10px;border-radius:99px;overflow:hidden;background:var(--zone);margin-top:10px}
+.stack span{display:block;height:100%}
+.legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:8px;color:var(--mut);font-size:12px}
+.legend b{color:var(--ink);font-variant-numeric:tabular-nums}
+.c-done{background:var(--green)} .c-on{background:var(--blue)} .c-no{background:var(--red)} .c-up{background:#c3cad8}
+body.dark .c-up{background:#3a445e}
+
+.now{border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:10px 14px;margin-bottom:12px;display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap}
+.now .h{font-weight:700;white-space:nowrap;padding-top:3px;min-width:110px}
+.now .h small{display:block;color:var(--mut);font-weight:600}
+.now .list{display:flex;flex-wrap:wrap;gap:6px;flex:1}
+.tag{display:inline-flex;align-items:center;gap:6px;border-radius:8px;padding:4px 9px;background:var(--zone);white-space:nowrap}
+.tag b{font-weight:700}
+
+.tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}
+.search{position:relative;flex:0 1 280px}
+.search input{width:100%;border:1px solid var(--line);border-radius:9px;background:var(--panel);padding:7px 10px 7px 30px;outline:none}
+.search input:focus{border-color:var(--cob)}
+.search svg{position:absolute;left:9px;top:50%;transform:translateY(-50%);opacity:.5}
+.fchip{border:1px solid var(--line);background:var(--panel);border-radius:99px;padding:5px 11px;cursor:pointer;font-weight:600;white-space:nowrap}
+.fchip.on{border-color:var(--cob);background:var(--bluebg);color:var(--blue)}
+select{border:1px solid var(--line);border-radius:9px;background:var(--panel);padding:6px 8px}
+
+.tbl{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--panel)}
+.tr{display:grid;border-top:1px solid var(--line)}
+.tr:first-child{border-top:0}
+.th{background:var(--zone);color:var(--mut);font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.03em}
+.th>div{padding:9px 12px}
+.td{padding:10px 12px;min-width:0;border-left:1px solid var(--line)}
+.td:first-child{border-left:0}
+.th>div+div{border-left:1px solid var(--line)}
+.tr.dim{opacity:.55}
+.tr:not(.th):hover{background:rgba(18,64,224,.025)}
+.nm{font-weight:700;font-size:14px;display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.nm.nw{flex-wrap:nowrap;align-items:baseline}
+.nm.nw .hc{transform:translateY(-1px)}
+.star{color:#e0a100}
+.sub{color:var(--mut);margin-top:2px;font-size:12px}
+.badge{display:inline-block;border-radius:6px;padding:1px 7px;font-size:11px;font-weight:700;background:var(--zone);color:var(--mut);margin-top:4px}
+.badge.warn{background:var(--redbg);color:var(--red)}
+.hc{width:9px;height:9px;border-radius:3px;display:inline-block;flex:none}
+
+.prog .bar{display:flex;height:7px;border-radius:99px;overflow:hidden;background:var(--zone)}
+.prog .bar span{display:block;height:100%}
+.prog .txt{display:flex;justify-content:space-between;margin-top:6px;font-variant-numeric:tabular-nums;color:var(--mut);font-weight:600}
+.prog .txt b{color:var(--ink)}
+.prog .ns{color:var(--red);font-weight:700}
+
+.chips{display:flex;flex-wrap:wrap;gap:5px}
+.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid transparent;border-radius:8px;padding:3px 8px 3px 6px;
+ background:var(--zone);cursor:pointer;max-width:100%;text-align:left;line-height:1.3}
+.chip:hover{border-color:var(--line)}
+.chip .t{font-variant-numeric:tabular-nums;font-size:11px;color:var(--mut);font-weight:600}
+.chip .who{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chip .org{color:var(--mut);font-weight:400;font-size:12px}
+.chip .ic{font-size:11px;font-weight:800}
+.chip.s-Done{background:var(--greenbg);color:var(--green)} .chip.s-Done .t,.chip.s-Done .org{color:var(--green);opacity:.8}
+.chip.s-Ongoing{background:var(--bluebg);color:var(--blue);border-color:var(--blue)} .chip.s-Ongoing .t,.chip.s-Ongoing .org{color:var(--blue)}
+.chip.s-No-Show{background:var(--redbg);color:var(--red)} .chip.s-No-Show .who{text-decoration:line-through} .chip.s-No-Show .t,.chip.s-No-Show .org{color:var(--red);opacity:.85}
+.chip.hit{box-shadow:0 0 0 2px #f5c518}
+.chip.pr1{background:var(--pink)} .chip.pr2{background:var(--yellow)} .chip.pr3{background:var(--zone)}
+.chip.pr1.s-Done,.chip.pr2.s-Done,.chip.pr3.s-Done{color:var(--ink)}
+.chip.pr1 .ic,.chip.pr2 .ic,.chip.pr3 .ic{opacity:.8}
+.empty{color:var(--mut)}
+.none{padding:30px;text-align:center;color:var(--mut)}
+.note{font-size:12px;color:var(--mut);margin-top:4px;white-space:normal}
+
+.menu{position:fixed;z-index:20;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(16,24,40,.16);padding:6px;min-width:190px;display:none}
+.menu.on{display:block}
+.menu .mh{padding:6px 8px 8px;border-bottom:1px solid var(--line);margin-bottom:4px}
+.menu .mh b{display:block}
+.menu .mh span{color:var(--mut);font-size:12px}
+.menu button{display:flex;align-items:center;gap:8px;width:100%;border:0;background:transparent;padding:7px 8px;border-radius:7px;cursor:pointer;text-align:left}
+.menu button:hover{background:var(--zone)}
+.menu button.cur{font-weight:700}
+.menu button i{width:9px;height:9px;border-radius:50%;display:inline-block}
+
+@media (max-width:900px){.kpis{grid-template-columns:repeat(3,1fr)}.kpis .main{grid-column:1/-1}}
+</style>
+</head>
+<body>
+<div class="top">
+  <span class="live" id="live"><i></i><span id="clock"></span></span>
+  <div class="spacer"></div>
+  <div class="seg" id="days"></div>
+</div>
+<div class="kpis" id="kpis"></div>
+<div class="now" id="now" style="display:none"></div>
+<div class="tools">
+  <div class="seg" id="view"></div>
+  <label class="search"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    <input id="q" type="search" autocomplete="off"></label>
+  <div id="filters" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+  <div class="spacer"></div>
+  <select id="sort"></select>
+</div>
+<div class="tbl" id="tbl"></div>
+<div class="menu" id="menu"></div>
+<script>
+(function () {
+  "use strict";
+  function send(type, data) { window.parent.postMessage(Object.assign({ isStreamlitMessage: true, type: type }, data || {}), "*"); }
+  const ST = {
+    ready: () => send("streamlit:componentReady", { apiVersion: 1 }),
+    height: (h) => send("streamlit:setFrameHeight", { height: h }),
+    value: (v) => send("streamlit:setComponentValue", { value: v, dataType: "json" }),
+  };
+  const STATUSES = ["Scheduled", "Ongoing", "Done", "No-Show"];
+  const KO = {
+    "All days": "전체 일정", "Startups": "스타트업", "Partners": "파트너", "Search": "검색",
+    "Meetings": "미팅", "complete": "완료율", "Done": "완료", "Ongoing": "진행 중", "Upcoming": "예정",
+    "No-Show": "노쇼", "Scheduled": "예정", "Pitch practice": "피칭 연습", "now": "지금", "Live": "실시간",
+    "Now": "지금", "Next": "다음", "ends": "종료", "Table": "테이블", "No meeting running right now.": "지금 진행 중인 미팅이 없어요.",
+    "All": "전체", "Priority": "우선순위", "Has no-show": "노쇼 있음", "In a meeting now": "지금 미팅 중",
+    "Part days": "일부만 참석", "Sort by name": "이름순", "Most meetings": "미팅 많은 순", "Least progress": "진행 적은 순",
+    "Most no-shows": "노쇼 많은 순", "Startup": "스타트업", "Partner": "파트너", "Progress": "진행",
+    "Practice": "피칭 연습", "done": "완료", "No meetings": "미팅 없음", "Not attending": "불참",
+    "only": "만 참석", "Nothing matches.": "조건에 맞는 항목이 없어요.", "Auto (follows the clock)": "자동 (시간 따라)",
+    "no-show": "노쇼", "practices": "회 연습", "round": "차", "meetings today": "개 미팅 오늘",
+    "startups": "개 스타트업", "Table ": "테이블 ",
+  };
+  const tr = (s) => (D && D.lang === "ko" && KO[s]) || s;
+  const fmt = (m) => { const t = Math.round(m * 60), h = Math.floor(t / 3600), mi = Math.floor((t % 3600) / 60), s = t % 60;
+    return String(h).padStart(2, "0") + ":" + String(mi).padStart(2, "0") + (s ? ":" + String(s).padStart(2, "0") : ""); };
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  const ICON = { Scheduled: "", Ongoing: "●", Done: "✓", "No-Show": "✕" };
+  const DOT = { Scheduled: "#9aa3b8", Ongoing: "var(--blue)", Done: "var(--green)", "No-Show": "var(--red)" };
+
+  let D = null, statuses = {}, version = null, seq = 0;
+  const ui = { day: -1, view: "s", q: "", f: "all", sort: "name", menu: null };
+
+  // ---------------- time ----------------
+  function nowInfo() {
+    if (window.__fakeNow) return window.__fakeNow;   // test hook
+    try {
+      const f = new Intl.DateTimeFormat("en-CA", { timeZone: D.tz, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
+      const p = {}; f.formatToParts(new Date()).forEach((x) => (p[x.type] = x.value));
+      return { today: p.year + "-" + p.month + "-" + p.day, m: (+p.hour % 24) * 60 + +p.minute };
+    } catch (e) { return { today: "", m: 0 }; }
+  }
+  function statusOf(it, n) {
+    const s = statuses[it.id];
+    if (STATUSES.indexOf(s) >= 0) return s;
+    const date = (D.days[it.day] || {}).date;
+    if (!date) return "Scheduled";
+    if (date < n.today) return "Done";
+    if (date > n.today) return "Scheduled";
+    return n.m < it.start ? "Scheduled" : n.m < it.end ? "Ongoing" : "Done";
+  }
+
+  // ---------------- model ----------------
+  function model() {
+    const n = nowInfo();
+    const inDay = (x) => ui.day < 0 || x.day === ui.day;
+    const meetings = D.meetings.filter(inDay).map((m) => Object.assign({}, m, { st: statusOf(m, n) }));
+    const polish = D.polish.filter(inDay).map((p) => Object.assign({}, p, { st: statusOf(p, n) }));
+    const cnt = { Scheduled: 0, Ongoing: 0, Done: 0, "No-Show": 0 };
+    meetings.forEach((m) => cnt[m.st]++);
+    const pdone = polish.filter((p) => p.st === "Done").length;
+    return { n: n, meetings: meetings, polish: polish, cnt: cnt, pdone: pdone };
+  }
+
+  // ---------------- render ----------------
+  function seg(el, items, cur, onPick) {
+    el.innerHTML = items.map((it) => `<button data-v="${esc(it[0])}" class="${String(it[0]) === String(cur) ? "on" : ""}">${esc(it[1])}</button>`).join("");
+    el.onclick = (e) => { const b = e.target.closest("button"); if (b) onPick(b.dataset.v); };
+  }
+  function bar(c, total, cls) {
+    if (!total) return `<div class="${cls}"></div>`;
+    const w = (k) => (100 * c[k] / total).toFixed(2) + "%";
+    return `<div class="${cls}"><span class="c-done" style="width:${w("Done")}"></span><span class="c-on" style="width:${w("Ongoing")}"></span><span class="c-no" style="width:${w("No-Show")}"></span></div>`;
+  }
+
+  function renderKpis(M) {
+    const total = M.meetings.length, c = M.cnt;
+    const pct = total ? Math.round(100 * (c.Done + c["No-Show"]) / total) : 0;
+    const card = (lab, num, dot, sub) => `<div class="card"><div class="lab">${dot ? `<i style="background:${dot}"></i>` : ""}${esc(lab)}</div><div class="num">${num}${sub ? `<small>${sub}</small>` : ""}</div></div>`;
+    const share = (k) => total ? Math.round(100 * c[k] / total) + "%" : "";
+    document.getElementById("kpis").innerHTML =
+      `<div class="card main"><div class="row"><div class="lab">${esc(tr("Meetings"))}</div><div class="pct">${pct}% ${esc(tr("complete"))}</div></div>
+        <div class="num">${total}</div>${bar(c, total, "stack")}</div>` +
+      card(tr("Done"), c.Done, DOT.Done, share("Done")) +
+      card(tr("Ongoing"), c.Ongoing, DOT.Ongoing, "") +
+      card(tr("Upcoming"), c.Scheduled, DOT.Scheduled, share("Scheduled")) +
+      card(tr("No-Show"), c["No-Show"], DOT["No-Show"], share("No-Show")) +
+      card(tr("Pitch practice"), M.pdone, "", "/ " + M.polish.length);
+  }
+
+  function renderNow(M) {
+    const el = document.getElementById("now");
+    const todayIdx = D.days.findIndex((d) => d.date === M.n.today);
+    if (todayIdx < 0 || (ui.day >= 0 && ui.day !== todayIdx)) { el.style.display = "none"; return; }
+    el.style.display = "";
+    const today = D.meetings.filter((m) => m.day === todayIdx).map((m) => Object.assign({}, m, { st: statusOf(m, M.n) }));
+    const on = today.filter((m) => m.st === "Ongoing").sort((a, b) => a.table - b.table);
+    const later = today.filter((m) => m.start > M.n.m);
+    const nextT = later.length ? Math.min.apply(null, later.map((m) => m.start)) : null;
+    const nextN = later.filter((m) => m.start === nextT).length;
+    const H = D.hostsBy;
+    let html = `<div class="h">${esc(tr("Now"))} ${fmt(M.n.m)}`;
+    if (nextT != null) html += `<small>${esc(tr("Next"))} ${fmt(nextT)} · ${nextN} ${esc(tr("Meetings").toLowerCase())}</small>`;
+    html += `</div><div class="list">`;
+    html += on.length ? on.map((m) => {
+      const h = H[m.host] || {};
+      return `<span class="tag"><span class="hc" style="background:#${h.color || "ccc"}"></span><b>${esc(tr("Table "))}${m.table}</b> ${esc(m.startup)} × ${esc(h.contact ? h.contact + " · " : "")}${esc(m.host)} <span class="sub" style="margin:0">${esc(tr("ends"))} ${fmt(m.end)}</span></span>`;
+    }).join("") : `<span class="empty" style="padding-top:3px">${esc(tr("No meeting running right now."))}</span>`;
+    el.innerHTML = html + "</div>";
+  }
+
+  function chip(m, label, org, color, extraCls, hit, lead) {
+    return `<button class="chip s-${m.st} ${extraCls || ""} ${hit ? "hit" : ""}" data-id="${esc(m.id)}" title="${esc(tr(m.st))}">` +
+      `<span class="t">${esc(lead || fmt(m.start))}</span>` + (color ? `<span class="hc" style="background:#${color}"></span>` : "") +
+      `<span class="who">${esc(label)}${org ? ` <span class="org">${esc(org)}</span>` : ""}</span>` +
+      (ICON[m.st] ? `<span class="ic">${ICON[m.st]}</span>` : "") + `</button>`;
+  }
+
+  function attendanceBadge(days) {
+    if (!days.length) return `<span class="badge warn">${esc(tr("Not attending"))}</span>`;
+    if (days.length >= D.days.length) return "";
+    const lab = days.map((d) => D.days[d].short).join(", ");
+    return `<span class="badge">${esc(D.lang === "ko" ? lab + tr("only") : lab + " " + tr("only"))}</span>`;
+  }
+
+  function rows(M) {
+    const q = ui.q.trim().toLowerCase();
+    const match = (s) => q && String(s || "").toLowerCase().indexOf(q) >= 0;
+    const S = ui.view === "s";
+    const people = S ? D.startups : D.hosts;
+    const key = S ? "startup" : "host";
+    const other = S ? "host" : "startup";
+    const out = people.map((p) => {
+      const ms = M.meetings.filter((m) => m[key] === p.name).sort((a, b) => a.day - b.day || a.start - b.start);
+      const ps = S ? M.polish.filter((x) => x.startup === p.name).sort((a, b) => a.day - b.day || a.start - b.start) : [];
+      const c = { Scheduled: 0, Ongoing: 0, Done: 0, "No-Show": 0 };
+      ms.forEach((m) => c[m.st]++);
+      const selfHit = match(p.name) || match(p.contact) || match(p.presenter);
+      const chipHit = ms.some((m) => match(m[other]) || (!S ? false : match((D.hostsBy[m.host] || {}).contact)));
+      return { p: p, ms: ms, ps: ps, c: c, hit: !q || selfHit || chipHit };
+    }).filter((r) => {
+      if (!r.hit) return false;
+      if (ui.f === "pri") return r.p.priority;
+      if (ui.f === "ns") return r.c["No-Show"] > 0;
+      if (ui.f === "on") return r.c.Ongoing > 0;
+      if (ui.f === "part") return r.p.days.length < D.days.length;
+      return true;
+    });
+    const prog = (r) => r.ms.length ? (r.c.Done + r.c["No-Show"]) / r.ms.length : 1;
+    const byName = (a, b) => a.p.name.localeCompare(b.p.name);
+    const sorters = {
+      name: byName,
+      most: (a, b) => b.ms.length - a.ms.length || byName(a, b),
+      least: (a, b) => prog(a) - prog(b) || byName(a, b),
+      ns: (a, b) => b.c["No-Show"] - a.c["No-Show"] || byName(a, b),
+    };
+    out.sort((a, b) => (a.p.days.length ? 0 : 1) - (b.p.days.length ? 0 : 1) || sorters[ui.sort](a, b));
+    return { list: out, match: match };
+  }
+
+  function renderTable(M) {
+    const S = ui.view === "s";
+    const dayIdx = ui.day < 0 ? D.days.map((_, i) => i) : [ui.day];
+    const showPrac = S && D.polish.length > 0;
+    const cols = ["minmax(150px,1fr)", "132px"].concat(dayIdx.map(() => "minmax(220px,3fr)")).concat(showPrac ? ["minmax(150px,1fr)"] : []).join(" ");
+    const R = rows(M);
+    let h = `<div class="tr th" style="grid-template-columns:${cols}"><div>${esc(tr(S ? "Startup" : "Partner"))}</div><div>${esc(tr("Progress"))}</div>` +
+      dayIdx.map((d) => `<div>${esc(D.days[d].title)}</div>`).join("") + (showPrac ? `<div>${esc(tr("Practice"))}</div>` : "") + `</div>`;
+    if (!R.list.length) h += `<div class="none">${esc(tr("Nothing matches."))}</div>`;
+    R.list.forEach((r) => {
+      const p = r.p, n = r.ms.length;
+      let name;
+      if (S) {
+        name = `<div class="nm">${esc(p.name)}${p.priority ? '<span class="star" title="priority">★</span>' : ""}</div>` +
+          (p.presenter ? `<div class="sub">${esc(p.presenter)}</div>` : "") + attendanceBadge(p.days);
+      } else {
+        name = `<div class="nm nw"><span class="hc" style="background:#${p.color}"></span><span>${esc(p.name)}</span></div>` +
+          `<div class="sub">${esc([p.contact, p.kind].filter(Boolean).join(" · "))}</div>` + attendanceBadge(p.days);
+      }
+      const progress = `<div class="prog">${bar(r.c, n, "bar")}<div class="txt"><span><b>${r.c.Done}</b> / ${n} ${esc(tr("done"))}</span>` +
+        (r.c["No-Show"] ? `<span class="ns">${r.c["No-Show"]} ${esc(tr("no-show"))}</span>` : "") + `</div></div>`;
+      const dayCells = dayIdx.map((d) => {
+        const ms = r.ms.filter((m) => m.day === d);
+        if (!ms.length) return `<div class="td"><span class="empty">${p.days.indexOf(d) < 0 ? "–" : esc(tr("No meetings"))}</span></div>`;
+        return `<div class="td"><div class="chips">` + ms.map((m) => {
+          if (S) { const hh = D.hostsBy[m.host] || {}; return chip(m, hh.contact || m.host, hh.contact ? m.host : "", hh.color, "", R.match(m.host) || R.match(hh.contact)); }
+          return chip(m, m.startup, "", "", "", R.match(m.startup));
+        }).join("") + `</div></div>`;
+      }).join("");
+      const prac = showPrac ? `<div class="td"><div class="chips">` + (r.ps.length ? r.ps.map((x) =>
+        chip(x, D.days[x.day].short + " " + fmt(x.start), "", "", "pr" + Math.min(x.n, 3), false, D.lang === "ko" ? x.n + tr("round") : ordinal(x.n))).join("") : `<span class="empty">–</span>`) +
+        `</div>` + r.ps.filter((x) => x.note).map((x) => `<div class="note">${esc(x.note)}</div>`).join("") + `</div>` : "";
+      h += `<div class="tr ${p.days.length ? "" : "dim"}" style="grid-template-columns:${cols}"><div class="td">${name}</div><div class="td">${progress}</div>${dayCells}${prac}</div>`;
+    });
+    document.getElementById("tbl").innerHTML = h;
+  }
+  const ordinal = (n) => n + (n % 10 === 1 && n % 100 !== 11 ? "st" : n % 10 === 2 && n % 100 !== 12 ? "nd" : n % 10 === 3 && n % 100 !== 13 ? "rd" : "th");
+
+  function renderTools() {
+    const dayItems = [[-1, tr("All days")]].concat(D.days.map((d, i) => [i, d.title]));
+    seg(document.getElementById("days"), dayItems, ui.day, (v) => { ui.day = +v; render(); });
+    seg(document.getElementById("view"), [["s", tr("Startups") + " " + D.startups.filter((s) => s.days.length).length], ["h", tr("Partners") + " " + D.hosts.length]], ui.view,
+      (v) => { ui.view = v; if (v === "h" && (ui.f === "pri")) ui.f = "all"; render(); });
+    const fl = [["all", tr("All")]].concat(ui.view === "s" ? [["pri", "★ " + tr("Priority")]] : [])
+      .concat([["ns", tr("Has no-show")], ["on", tr("In a meeting now")], ["part", tr("Part days")]]);
+    const fe = document.getElementById("filters");
+    fe.innerHTML = fl.map((f) => `<button class="fchip ${ui.f === f[0] ? "on" : ""}" data-v="${f[0]}">${esc(f[1])}</button>`).join("");
+    fe.onclick = (e) => { const b = e.target.closest("button"); if (b) { ui.f = b.dataset.v; render(); } };
+    const so = document.getElementById("sort");
+    const opts = [["name", tr("Sort by name")], ["most", tr("Most meetings")], ["least", tr("Least progress")], ["ns", tr("Most no-shows")]];
+    so.innerHTML = opts.map((o) => `<option value="${o[0]}" ${ui.sort === o[0] ? "selected" : ""}>${esc(o[1])}</option>`).join("");
+    const q = document.getElementById("q");
+    q.placeholder = tr("Search");
+    if (document.activeElement !== q) q.value = ui.q;
+  }
+
+  function render() {
+    if (!D) return;
+    const M = model();
+    document.getElementById("clock").textContent = tr("Live") + " · " + fmt(M.n.m) + " " + (D.tzShort || "");
+    renderTools(); renderKpis(M); renderNow(M); renderTable(M);
+    fit();
+  }
+  let lastH = 0;
+  function fit() {
+    const h = Math.ceil(document.body.scrollHeight) + 8;
+    if (Math.abs(h - lastH) > 2) { lastH = h; ST.height(h); }
+  }
+
+  // ---------------- status menu ----------------
+  const menu = document.getElementById("menu");
+  function openMenu(id, x, y) {
+    const it = D.byId[id]; if (!it) return;
+    const cur = statuses[id];
+    const head = it.kind === "p"
+      ? `<b>${esc(it.startup)}</b><span>${esc(tr("Practice"))} · ${esc(D.days[it.day].short)} ${fmt(it.start)}</span>`
+      : `<b>${esc(it.startup)} × ${esc(it.host)}</b><span>${esc(D.days[it.day].short)} ${fmt(it.start)} – ${fmt(it.end)} · ${esc(tr("Table "))}${it.table}</span>`;
+    menu.innerHTML = `<div class="mh">${head}</div>` +
+      `<button data-s="" class="${cur ? "" : "cur"}"><i style="background:transparent;border:1.5px solid var(--mut)"></i>${esc(tr("Auto (follows the clock)"))}</button>` +
+      STATUSES.map((s) => `<button data-s="${s}" class="${cur === s ? "cur" : ""}"><i style="background:${DOT[s]}"></i>${esc(tr(s))}</button>`).join("");
+    menu.classList.add("on");
+    const r = menu.getBoundingClientRect();
+    menu.style.left = Math.min(x, window.innerWidth - r.width - 8) + "px";
+    menu.style.top = Math.max(4, Math.min(y, window.innerHeight - r.height - 8)) + "px";
+    ui.menu = id;
+  }
+  function closeMenu() { menu.classList.remove("on"); ui.menu = null; }
+  menu.addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b || !ui.menu) return;
+    const id = ui.menu, s = b.dataset.s;
+    if (s) statuses[id] = s; else delete statuses[id];
+    closeMenu(); render();
+    const set = {}; set[id] = s || "";
+    ST.value({ version: "sum-" + Date.now() + "-" + (++seq), set: set });
+  });
+  document.getElementById("tbl").addEventListener("click", (e) => {
+    const c = e.target.closest(".chip"); if (!c) return;
+    e.stopPropagation();
+    const r = c.getBoundingClientRect();
+    openMenu(c.dataset.id, r.left, r.bottom + 4);
+  });
+  document.addEventListener("click", (e) => { if (ui.menu && !menu.contains(e.target)) closeMenu(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenu(); });
+  document.getElementById("q").addEventListener("input", (e) => { ui.q = e.target.value; render(); });
+  document.getElementById("sort").addEventListener("change", (e) => { ui.sort = e.target.value; render(); });
+
+  setInterval(() => { if (D && !ui.menu) render(); }, 30000);
+  new ResizeObserver(() => fit()).observe(document.body);
+
+  window.addEventListener("message", (event) => {
+    const msg = event.data;
+    if (!msg || msg.type !== "streamlit:render") return;
+    const args = msg.args || {};
+    const data = typeof args.data === "string" ? JSON.parse(args.data) : args.data;
+    if (msg.theme && msg.theme.base) document.body.classList.toggle("dark", msg.theme.base === "dark");
+    if (!data) return;
+    D = data;
+    D.hostsBy = {}; D.byId = {};
+    D.hosts.forEach((h) => (D.hostsBy[h.name] = h));
+    D.meetings.forEach((m) => (D.byId[m.id] = Object.assign({ kind: "m" }, m)));
+    D.polish.forEach((p) => (D.byId[p.id] = Object.assign({ kind: "p" }, p)));
+    if (ui.day >= D.days.length) ui.day = -1;
+    if (data.version !== version) { version = data.version; statuses = Object.assign({}, data.statuses || {}); }
+    if (!ui.menu) render();
+  });
+  window.__sum = { state: () => ({ ui: ui, statuses: statuses }), model: () => model(), data: () => D, render: () => render() };
+  ST.ready();
+})();
+</script>
+</body>
+</html>
