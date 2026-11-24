@@ -16,10 +16,12 @@ import time as _time
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, time, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.cell.rich_text import CellRichText, TextBlock
@@ -34,6 +36,7 @@ from ortools.sat.python import cp_model
 # Constants
 # --------------------------------------------------------------------------------------
 APP_TITLE = "BizMatch Scheduler"
+BOARD = components.declare_component("bizmatch_board", path=str(Path(__file__).parent / "board"))
 STATUSES = ["Scheduled", "Ongoing", "Done", "No-Show"]
 STATUS_CHOICES = ["Auto"] + STATUSES
 LOCK_STATUSES = {"Ongoing", "Done", "No-Show"}
@@ -324,10 +327,12 @@ class Meeting:
     startup: str
     host: str
     table: int = 0
+    lock: bool = False     # moved by hand: kept when the schedule is generated again
 
     @property
     def mid(self) -> str:
-        return f"D{self.day + 1}-{fmt(self.start)}-{self.host}-{self.startup}"
+        """Stable id. A startup and a host meet at most once, so the pair identifies the meeting."""
+        return f"{self.startup}|{self.host}"
 
 
 @dataclass
@@ -338,6 +343,10 @@ class Polish:
     end: int
     startup: str
     n: int = 1          # 1 = first polishing session for this startup, 2 = second, ...
+
+    @property
+    def pid(self) -> str:
+        return f"{self.startup}|D{self.day}"
 
 
 def number_polish(polish: list[Polish]) -> list[Polish]:
@@ -1001,15 +1010,19 @@ def build_excel(cfg, slots, startups, hosts, meetings, statuses, now, polish=())
     ws.cell(2, SE, f"{cfg.name} ({cfg.interval}-Min Slots)").font = _f(18, True, C_NAVY)
     ws.row_dimensions[2].height = 30
     notes = attendance_notes(cfg, startups)
-    note_col = MC(min(2, T - 1)) if T > 1 else WC
-    for j, (head, names) in enumerate(notes):
-        c = ws.cell(2 + j, note_col)
-        c.value = CellRichText(TextBlock(_if(11, True, "B4132D" if head == "NOT HERE" else C_NAVY), head + ": "),
-                               TextBlock(_if(11, True, C_NAVY), names))
-        c.alignment = Alignment(vertical="center")
-        if 2 + j > 2:
-            ws.row_dimensions[2 + j].height = 22
-    r = max(4, 2 + len(notes) + 1)
+    r = 4
+    if notes:
+        # Hidden behind the row-group "+" button in the left margin (Excel and Google Sheets)
+        c = ws.cell(3, SE, f"Attendance notes ({len(notes)}): click + on the left to show")
+        c.font = _f(9, False, C_MUT, italic=True)
+        for j, (head, names) in enumerate(notes):
+            c = ws.cell(4 + j, SE)
+            c.value = CellRichText(TextBlock(_if(10.5, True, "B4132D" if head == "NOT HERE" else C_NAVY), head + ": "),
+                                   TextBlock(_if(10.5, False, C_INK), names))
+            c.alignment = Alignment(vertical="center")
+        ws.row_dimensions.group(4, 3 + len(notes), outline_level=1, hidden=True)
+        ws.sheet_properties.outlinePr.summaryBelow = False
+        r = 5 + len(notes)
 
     status_cells, meet_ranges, first = [], [], r
     for d in range(len(cfg.days)):
@@ -1429,133 +1442,71 @@ def cb_project():
         ss().flash = ("error", f"Could not load project: {e}")
 
 
-def cb_status_edit(key: str, ids: list[str]):
-    edits = ss()[key].get("edited_rows", {})
-    for r, ch in edits.items():
-        if "Set Status" in ch and r < len(ids):
-            v = ch["Set Status"]
-            if v in STATUSES:
-                ss().statuses[ids[r]] = v
-            else:
-                ss().statuses.pop(ids[r], None)
-
-
 # --------------------------------------------------------------------------------------
-# UI
+# Drag-and-drop board (custom component in ./board)
 # --------------------------------------------------------------------------------------
-CSS = """
-<style>
-.bm-wrap{overflow-x:auto;border:1px solid rgba(128,128,128,.28);border-radius:12px}
-.bm{border-collapse:separate;border-spacing:0;width:100%;font-size:13px;line-height:1.3}
-.bm th{background:rgba(18,64,224,.10);text-align:left;padding:9px 8px;font-weight:600;white-space:nowrap;
- border-bottom:1px solid rgba(128,128,128,.28)}
-.bm td{padding:6px;border-bottom:1px solid rgba(128,128,128,.16);border-left:1px solid rgba(128,128,128,.12);
- vertical-align:top;min-width:150px}
-.bm td.t{min-width:96px;white-space:nowrap;font-weight:600;font-variant-numeric:tabular-nums;border-left:0;padding:10px 8px}
-.bm tr.now td{background:rgba(18,64,224,.08)}
-.bm tr.now td.t:after{content:"NOW";display:block;margin-top:4px;width:max-content;font-size:10px;color:#fff;
- background:#1240e0;border-radius:99px;padding:1px 7px}
-.bm tr.lunch td{background:rgba(128,128,128,.10);opacity:.8;font-weight:600;text-align:center}
-.bm tr.lunch td.t{text-align:left}
-.bm .m{border:1px solid rgba(128,128,128,.35);border-radius:9px;padding:6px 8px}
-.bm .m b{display:block;font-weight:600}
-.bm .m .h{display:block;opacity:.72;font-size:12px;margin-top:2px}
-.bm .p{display:inline-block;margin-top:6px;border-radius:99px;padding:1px 8px;font-size:11px;font-weight:600}
-.bm .s-Scheduled .p{background:rgba(128,128,128,.18)}
-.bm .s-Ongoing{border:2px solid #1240e0}
-.bm .s-Ongoing .p{background:#1240e0;color:#fff}
-.bm .s-Done{opacity:.6}
-.bm .s-Done .p{background:rgba(43,138,62,.22);color:#2b8a3e}
-.bm .s-No-Show b{text-decoration:line-through;opacity:.7}
-.bm .s-No-Show .p{background:rgba(200,16,46,.16);color:#d6334f}
-.bm .e{opacity:.3;text-align:center;padding-top:16px}
-.bm td.w{min-width:240px;font-size:12px;line-height:1.55}
-.bm td.r{min-width:200px;opacity:.75}
-.bm .dot{opacity:.35;margin:0 6px}
-.bm tr.lunch td{font-style:italic}
-.bm .star{color:#d6a100}
-.bm td.sess{min-width:96px;font-weight:700;text-align:center;vertical-align:middle;border-left:0}
-.bm td.sess small{font-weight:500;opacity:.7}
-.bm .m{text-align:center;border:0}
-.bm .m .p{background:rgba(255,255,255,.75)!important;color:#1f2430!important}
-.bm .s-Ongoing{outline:3px solid #1240e0;outline-offset:1px}
-.bm .s-Ongoing .p{background:#1240e0!important;color:#fff!important}
-.bm .s-Done .p{background:#ddf2e3!important;color:#1e7b34!important}
-.bm .s-No-Show{background:#eceef2!important;color:#9ca3af!important}
-.bm .s-No-Show .p{background:#fde2e6!important;color:#b4132d!important}
-.bm td.pc{min-width:150px}
-.bm .pol{border-radius:9px;padding:8px;text-align:center;font-weight:700;color:#1f2430;margin-bottom:4px}
-.bm .pol small{display:block;font-weight:500;opacity:.65;font-size:11px}
-.bm td.w{text-align:center}
-.notes{display:flex;flex-wrap:wrap;gap:6px 22px;margin:0 0 10px;font-size:14px}
-.notes .note b{color:#c8102e}
-</style>
-"""
-
-
-def esc(s) -> str:
-    return (str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            .replace('"', "&quot;"))
-
-
-def grid_html(day, cfg, slots, startups, hosts, meetings, statuses, now, polish=()) -> str:
-    T = cfg.tables
-    pri = {s.name for s in startups if s.priority}
-    H = {h.name: h for h in hosts}
+def board_payload(day, cfg, slots, startups, hosts, r) -> dict:
+    ds = [x for x in slots if x.day == day]
+    polish = [Polish(**p) for p in r.get("polish", [])]
+    rows = []
+    for row in day_rows(day, cfg, slots, startups, hosts, []):
+        if row["lunch"]:
+            rows.append({"kind": "lunch", "label": "Lunch break", "time": row["time"].replace("–", " – ")})
+        elif row.get("divider"):
+            rows.append({"kind": "divider", "label": row["label"], "time": ""})
+        elif row.get("tables") is not None:
+            rows.append({"kind": "slot", "k": row["slot"].k, "start": row["start"], "end": row["end"],
+                         "session": row["session"]})
     hcol = host_colors(hosts)
-    today = cfg.day_date(day) == now.date()
-    nm = now.hour * 60 + now.minute
-    sessions = cfg.session_list()
-    head = ("<tr><th>Session</th><th>Time</th>" + "".join(f"<th>Table {i}</th>" for i in range(1, T + 1))
-            + "<th>Pitch polishing</th><th>Waiting list</th></tr>")
-    rows = day_rows(day, cfg, slots, startups, hosts, meetings, polish=polish)
-    # how many consecutive slot rows each session spans (for the merged Session cell)
-    span, i = {}, 0
-    while i < len(rows):
-        if rows[i].get("tables") is not None:
-            j = i
-            while j + 1 < len(rows) and rows[j + 1].get("tables") is not None \
-                    and rows[j + 1]["session"] == rows[i]["session"]:
-                j += 1
-            span[i] = j - i + 1
-            i = j + 1
-        else:
-            i += 1
-    body = []
-    for ri, row in enumerate(rows):
-        if row["lunch"] or row.get("divider"):
-            label = "Lunch break" if row["lunch"] else row["label"]
-            t = row["time"].replace("–", " – ")
-            body.append(f'<tr class="lunch"><td class="t">-</td><td class="t">{t}</td>'
-                        f'<td colspan="{T + 2}">{esc(label)}</td></tr>')
-            continue
-        cls = ' class="now"' if today and row["start"] <= nm < row["end"] else ""
-        sess = ""
-        if ri in span:
-            sx = sessions[row["session"]] if 0 <= row["session"] < len(sessions) else None
-            lab = (f'{esc(sx["name"])}<br><small>{fmt(sx["start"])}–{fmt(sx["end"])}</small>' if sx else "-")
-            sess = f'<td class="sess" rowspan="{span[ri]}">{lab}</td>'
-        cells = []
-        for m in row["tables"]:
-            if m is None:
-                cells.append('<td><div class="e">-</div></td>')
-                continue
-            s_ = eff_status(m, cfg, statuses, now)
-            bg = hcol.get(m.host, "FFFFFF")
-            star = "★ " if m.startup in pri else ""
-            cells.append(f'<td><div class="m s-{s_}" style="background:#{bg};color:#{text_on(bg)}">'
-                         f'<b>{star}{esc(m.startup)}</b><span class="h">{esc(host_paren(H.get(m.host, m.host)))}</span>'
-                         f'<span class="p">{s_}</span></div></td>')
-        pol = "".join(f'<div class="pol" style="background:#{polish_fill(p.n)}">{esc(p.startup)}'
-                      f'<small>{"1st" if p.n == 1 else "2nd" if p.n == 2 else f"{p.n}th"}</small></div>'
-                      for p in row["polish"])
-        wait = " • ".join(esc(n) for n in row["waiting"]) or "<i>None (all in sessions)</i>"
-        body.append(f'<tr{cls}>{sess}<td class="t">{fmt(row["start"])}–{fmt(row["end"])}</td>{"".join(cells)}'
-                    f'<td class="pc">{pol}</td><td class="w">{wait}</td></tr>')
-    notes = "".join(f'<span class="note"><b>{esc(h)}:</b> {esc(n)}</span>' for h, n in attendance_notes(cfg, startups))
-    notes = f'<div class="notes">{notes}</div>' if notes else ""
-    return (CSS + notes + f'<div class="bm-wrap"><table class="bm"><thead>{head}</thead>'
-            f'<tbody>{"".join(body)}</tbody></table></div>')
+    prior = defaultdict(int)
+    for p in polish:
+        if p.day < day:
+            prior[p.startup] += 1
+    day_pol = [p for p in polish if p.day == day]
+    return {
+        "version": r.get("version") or f"py-{r['id']}",
+        "day": day, "tables": cfg.tables, "tz": cfg.tz, "date": str(cfg.day_date(day) or ""),
+        "rows": rows, "sessions": cfg.session_list(),
+        "startups": [{"name": x.name, "priority": x.priority, "avail": [z.k for z in ds if x.available(z)]}
+                     for x in startups if not x.absent],
+        "hosts": [{"name": h.name, "contact": h.contact, "color": hcol[h.name], "text": text_on(hcol[h.name]),
+                   "avail": [z.k for z in ds if h.available(z)]} for h in hosts],
+        "meetings": [{"id": f"{m['startup']}|{m['host']}", "startup": m["startup"], "host": m["host"],
+                      "k": m["k"], "table": m["table"], "lock": bool(m.get("lock"))}
+                     for m in r["meetings"] if m["day"] == day],
+        "parked": [{"id": f"{m['startup']}|{m['host']}", "startup": m["startup"], "host": m["host"],
+                    "k": None, "table": 0, "lock": False} for m in r.get("parked", []) if m["day"] == day],
+        "polish": [{"id": p.pid, "startup": p.startup, "k": p.k} for p in day_pol],
+        "polOn": day in cfg.pol_days or bool(day_pol),
+        "polOk": [z.k for z in ds if cfg.polish_ok(z)], "polCap": max(1, cfg.pol_cap),
+        "polPrior": dict(prior), "statuses": dict(ss().statuses),
+        "notes": attendance_notes(cfg, startups), "maxHeight": 880,
+    }
+
+
+def apply_board(r, cfg, slots, startups, hosts, day, val) -> bool:
+    """Take the edits made on the board (moves, pushes, statuses) into the stored result."""
+    if not isinstance(val, dict) or val.get("day") != day or not val.get("version"):
+        return False
+    if val["version"] == r.get("version"):
+        return False
+    sl = {x.k: x for x in slots if x.day == day}
+    kept = [m for m in r["meetings"] if m["day"] != day]
+    new = [asdict(Meeting(day, x["k"], sl[x["k"]].start, sl[x["k"]].end, x["startup"], x["host"],
+                          int(x.get("table") or 0), bool(x.get("lock"))))
+           for x in val.get("meetings", []) if x.get("k") in sl]
+    r["meetings"] = sorted(kept + new, key=lambda m: (m["k"], m["table"]))
+    r["parked"] = [m for m in r.get("parked", []) if m["day"] != day] + [
+        asdict(Meeting(day, -1, 0, 0, x["startup"], x["host"])) for x in val.get("parked", [])]
+    pol = [Polish(**p) for p in r.get("polish", []) if p["day"] != day] + [
+        Polish(day, x["k"], sl[x["k"]].start, sl[x["k"]].end, x["startup"])
+        for x in val.get("polish", []) if x.get("k") in sl]
+    r["polish"] = [asdict(p) for p in number_polish(pol)]
+    ss().statuses = {k: v for k, v in (val.get("statuses") or {}).items() if v in STATUSES}
+    r["version"] = val["version"]
+    r["issues"] = validate(cfg, slots, startups, hosts, [Meeting(**m) for m in r["meetings"]],
+                           r.get("packing", "soft"), [Polish(**p) for p in r["polish"]])
+    return True
 
 
 def setup_tab():
@@ -1710,9 +1661,10 @@ def generate_tab():
 
     keep_live = False
     if s.result and s.result.get("meetings"):
+        has_pins = any(m.get("lock") for m in s.result["meetings"])
         keep_live = st.checkbox(
-            "Re-plan mode: keep meetings already Ongoing, Done or No-Show and reschedule the rest",
-            value=False, key="keep_live")
+            "Keep pinned meetings (moved by hand) and anything already Ongoing, Done or No-Show, "
+            "and reschedule the rest", value=has_pins, key="keep_live")
 
     st.caption("Always enforced: each startup and host meet at most once, nobody is double booked, "
                "tables are never over capacity, availability, cutoffs, blocked times and domain "
@@ -1726,7 +1678,7 @@ def generate_tab():
             now = now_for(old_cfg)
             for md in s.result["meetings"]:
                 m = Meeting(**md)
-                if eff_status(m, old_cfg, s.statuses, now) in LOCK_STATUSES:
+                if m.lock or eff_status(m, old_cfg, s.statuses, now) in LOCK_STATUSES:
                     fixed.append((m.startup, m.host, m.day, m.start))
             for pd_ in s.result.get("polish", []):
                 p_ = Polish(**pd_)
@@ -1738,9 +1690,14 @@ def generate_tab():
         with st.spinner("Optimising with OR-Tools CP-SAT…"):
             res = solve_schedule(cfg, slots, startups, hosts, settings, fixed, fixed_pol)
         if res.meetings:
+            pinned = {(f[0], f[1]) for f in fixed if any(md.get("lock") and md["startup"] == f[0] and
+                                                         md["host"] == f[1] for md in s.result["meetings"])} \
+                if keep_live else set()
+            for m in res.meetings:
+                m.lock = (m.startup, m.host) in pinned
             s.result = {
                 "id": int(_time.time() * 1000), "meetings": [asdict(m) for m in res.meetings],
-                "polish": [asdict(p_) for p_ in res.polish],
+                "polish": [asdict(p_) for p_ in res.polish], "parked": [],
                 "cfg": asdict(cfg), "s_df": s.s_df.copy(), "h_df": s.h_df.copy(),
                 "packing": s.packing_mode, "status": res.status, "message": res.message,
                 "wall": res.wall, "n_vars": res.n_vars, "kept": res.kept,
@@ -1772,63 +1729,46 @@ def results_tab():
     slots = build_slots(cfg)
     startups, _ = parse_parties(r["s_df"], "startup", cfg.labels)
     hosts, _ = parse_parties(r["h_df"], "host", cfg.labels)
+    now = now_for(cfg)
+
+    day = st.radio("Day", list(range(len(cfg.days))), format_func=cfg.day_title, horizontal=True, key="day_sel")
+    key = f"board_{r['id']}_{day}"
+    apply_board(r, cfg, slots, startups, hosts, day, s.get(key))
+
     meetings = [Meeting(**m) for m in r["meetings"]]
     polish = [Polish(**p) for p in r.get("polish", [])]
-    now = now_for(cfg)
+    parked = r.get("parked", [])
 
     if r.get("hash") and r["hash"] != frames_hash(current_cfg(), s.s_df, s.h_df):
         st.warning("Setup changed since this schedule was generated. Generate again to apply the changes.")
     issues = r.get("issues", [])
-    if issues:
-        st.error("Constraint check found problems:\n\n" + "\n".join(f"- {i}" for i in issues[:20]))
-    else:
-        st.success("Verified: no duplicate pairs, no double booking, table capacity, availability, cutoffs, "
-                   "blocked times, domain exclusions" + (", pitch polishing" if polish else "")
-                   + (" and gap-free host schedules" if r.get("packing") in ("front", "block") else ""))
+    hard = [i for i in issues if not i.startswith("Gap in")]
+    soft = [i for i in issues if i.startswith("Gap in")]
 
     counts = defaultdict(int)
     for m in meetings:
         counts[m.startup] += 1
     att = [x for x in startups if not x.absent]
     c = st.columns(5)
-    c[0].metric("Meetings", len(meetings))
+    c[0].metric("Meetings", len(meetings), f"{len(parked)} unplaced" if parked else None, delta_color="inverse")
     c[1].metric("Startups with meetings", f"{sum(1 for x in att if counts[x.name])}/{len(att)}")
     c[2].metric("Avg per startup", f"{len(meetings) / max(1, len(att)):.1f}")
     c[3].metric("Pitch polishing", len(polish) if polish else "Off")
-    c[4].metric("Solver", r["status"].title())
+    c[4].metric("Clashes", len(hard))
 
-    st.toggle("Live auto refresh (30s)", key="auto_refresh",
-              help="Statuses follow the clock on each event day. Manual statuses always win.")
-    day = st.radio("Day", list(range(len(cfg.days))), format_func=cfg.day_title, horizontal=True, key="day_sel")
+    st.caption("Drag a meeting onto another table or time. Green fits, amber pushes the meetings in the way to "
+               "the nearest free time, red is a clash. Click a meeting to set its status, pin it or unschedule it. "
+               "Ctrl+Z undoes.")
+    BOARD(data=board_payload(day, cfg, slots, startups, hosts, r), key=key, default=None)
 
-    @st.fragment(run_every=30 if s.auto_refresh else None)
-    def live_grid():
-        nw = now_for(cfg)
-        dm = [m for m in meetings if m.day == day]
-        cnt = defaultdict(int)
-        for m in dm:
-            cnt[eff_status(m, cfg, s.statuses, nw)] += 1
-        cols = st.columns(5)
-        cols[0].markdown(f"**Now** {nw.strftime('%H:%M')} ({cfg.tz})")
-        for i, k in enumerate(STATUSES, 1):
-            cols[i].markdown(f"**{cnt[k]}** {k}")
-        st.html(grid_html(day, cfg, slots, startups, hosts, meetings, s.statuses, nw, polish))
-
-    live_grid()
-
-    with st.expander("Live status board: mark Ongoing, Done or No-Show", expanded=False):
-        dm = [m for m in meetings if m.day == day]
-        ids = [m.mid for m in dm]
-        df = pd.DataFrame([{
-            "Time": f"{fmt(m.start)}–{fmt(m.end)}", "Table": m.table, "Startup": m.startup, "Host": m.host,
-            "Set Status": s.statuses.get(m.mid, "Auto"), "Showing": eff_status(m, cfg, s.statuses, now),
-        } for m in dm])
-        key = f"live_{r['id']}_{day}"
-        st.data_editor(df, key=key, hide_index=True, disabled=["Time", "Table", "Startup", "Host", "Showing"],
-                       on_change=cb_status_edit, args=(key, ids),
-                       column_config={"Set Status": st.column_config.SelectboxColumn(
-                           options=STATUS_CHOICES, required=True,
-                           help="Auto follows the clock. Pick No-Show when someone does not turn up")})
+    if hard:
+        with st.expander(f"{len(hard)} clash{'es' if len(hard) > 1 else ''} to resolve", expanded=False):
+            st.markdown("\n".join(f"- {i}" for i in hard[:40]))
+    elif not parked:
+        st.success("Verified: no duplicate pairs, no double booking, table capacity, availability, cutoffs, "
+                   "blocked times, domain exclusions" + (", pitch polishing" if polish else ""))
+    if soft:
+        st.caption(f"Note: {len(soft)} host schedule(s) now have a gap after manual moves.")
 
     st.subheader("Startup summary")
     st.dataframe(startup_summary(cfg, startups, hosts, meetings, s.statuses, now, polish=polish), hide_index=True)

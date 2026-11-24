@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>BizMatch board</title>
+<style>
+:root{--ink:#111827;--mut:#6b7280;--line:#e3e6ee;--bg:#ffffff;--zone:#f4f6fa;--head:#2b3a67;--cob:#1240e0;
+ --red:#d92d20;--amber:#e08a00;--green:#14a44d;--panel:#ffffff;font-family:"Source Sans Pro","Source Sans 3",Inter,system-ui,sans-serif}
+body.dark{--ink:#e8ebf3;--mut:#9aa3b8;--line:#2a3350;--bg:#0e1117;--zone:#161b28;--head:#24345f;--panel:#121725}
+*{box-sizing:border-box}
+html,body{margin:0;background:transparent;color:var(--ink);font-size:13px}
+body{user-select:none;-webkit-user-select:none}
+button{font:inherit;color:inherit}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:2px 0 10px}
+.btn{appearance:none;border:1px solid var(--line);background:var(--panel);border-radius:8px;min-height:34px;padding:0 12px;
+ cursor:pointer;font-weight:600;font-size:13px;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.btn:hover{border-color:var(--cob)}
+.btn:disabled{opacity:.4;cursor:default}
+.btn.on{background:var(--zone)}
+.pill{display:inline-flex;align-items:center;gap:6px;border-radius:99px;padding:4px 10px;background:var(--zone);font-weight:600;white-space:nowrap}
+.pill i{width:9px;height:9px;border-radius:50%;display:inline-block}
+.pill.bad{background:rgba(217,45,32,.12);color:var(--red);cursor:pointer}
+.spacer{flex:1}
+.clock{font-weight:700;font-variant-numeric:tabular-nums}
+.notes{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:0 0 10px;background:var(--panel);display:grid;gap:4px}
+.notes b{color:var(--red)}
+.tray{border:1.5px dashed var(--line);border-radius:10px;padding:8px;margin:0 0 10px;display:flex;flex-wrap:wrap;gap:6px;
+ align-items:center;min-height:48px;transition:background .12s,border-color .12s}
+.tray .lab{color:var(--mut);font-weight:600;margin-right:4px}
+.tray.hot{border-color:var(--cob);background:rgba(18,64,224,.06)}
+.tray .chip{min-width:150px}
+.wrap{overflow:auto;border:1px solid var(--line);border-radius:12px;background:var(--panel);position:relative}
+table.g{border-collapse:separate;border-spacing:0;min-width:100%}
+.g th{background:var(--head);color:#fff;font-weight:600;padding:9px 8px;position:sticky;top:0;z-index:3;white-space:nowrap;text-align:center}
+.g td{border-bottom:1px solid var(--line);border-left:1px solid var(--line);padding:4px;vertical-align:middle}
+.g td.sess{position:sticky;left:0;z-index:2;background:var(--panel);text-align:center;font-weight:700;min-width:92px;border-left:0}
+.g td.sess small{display:block;font-weight:500;color:var(--mut)}
+.g td.time{text-align:center;font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums;min-width:104px}
+.g tr.now td.time{color:#fff;background:var(--cob)}
+.g tr.now td{background-color:rgba(18,64,224,.05)}
+.g tr.brk td{background:var(--zone);color:var(--mut);font-weight:700;text-align:center;height:30px;letter-spacing:.02em}
+.cell{min-width:138px;height:62px;border-radius:9px;transition:background .12s,box-shadow .12s;display:flex;align-items:stretch}
+.cell.pc{min-width:150px;flex-direction:column;gap:3px}
+.cell .dash{flex:1;display:flex;align-items:center;justify-content:center;color:var(--line);font-size:16px}
+.cell.fit{box-shadow:inset 0 0 0 2.5px var(--green);background:rgba(20,164,77,.10)}
+.cell.push{box-shadow:inset 0 0 0 2.5px var(--amber);background:rgba(224,138,0,.12)}
+.cell.clash{box-shadow:inset 0 0 0 2.5px var(--red);background:rgba(217,45,32,.12)}
+.cell.self{box-shadow:inset 0 0 0 2px var(--line)}
+td.wait{font-size:11.5px;color:var(--mut);min-width:220px;max-width:340px;text-align:center;line-height:1.45}
+.chip{flex:1;border-radius:9px;padding:6px 8px;text-align:center;cursor:grab;line-height:1.22;position:relative;
+ touch-action:none;transition:transform .16s cubic-bezier(.2,.8,.2,1),box-shadow .16s,opacity .16s;
+ display:flex;flex-direction:column;justify-content:center;align-items:center;min-height:54px}
+.chip:hover{box-shadow:0 2px 10px rgba(0,0,0,.15);transform:translateY(-1px)}
+.chip b{font-size:13px;font-weight:700}
+.chip .h{font-size:11px;opacity:.85}
+.chip .st{margin-top:3px;font-size:10px;font-weight:700;border-radius:99px;padding:1px 7px;background:rgba(255,255,255,.78);color:#1f2430}
+.chip .st.Ongoing{background:var(--cob);color:#fff}
+.chip .st.Done{background:#ddf2e3;color:#1e7b34}
+.chip .st.No-Show{background:#fde2e6;color:#b4132d}
+.chip.ns{filter:grayscale(1);opacity:.55}
+.chip.ns b{text-decoration:line-through}
+.chip.done{opacity:.72}
+.chip.ongoing{box-shadow:0 0 0 2.5px var(--cob)}
+.chip .pin{position:absolute;top:4px;right:5px;width:11px;height:11px;opacity:.8}
+.chip.bad{outline:2.5px solid var(--red);outline-offset:1px}
+.chip.bad::after{content:"!";position:absolute;top:-7px;left:-7px;width:16px;height:16px;border-radius:50%;background:var(--red);
+ color:#fff;font-size:11px;font-weight:800;display:grid;place-items:center}
+.chip.lift{opacity:.25;transform:scale(.96)}
+.chip.snap{animation:snap .32s cubic-bezier(.2,.8,.2,1)}
+.chip.bump{animation:bump .6s ease}
+@keyframes snap{0%{transform:scale(1.10)}55%{transform:scale(.96)}100%{transform:scale(1)}}
+@keyframes bump{0%{box-shadow:0 0 0 0 rgba(224,138,0,.9)}100%{box-shadow:0 0 0 12px rgba(224,138,0,0)}}
+.chip.pol{color:#1f2430;min-height:38px;padding:4px 6px}
+.chip.pol small{font-size:10px;opacity:.65;font-weight:600}
+.ghost{position:fixed;z-index:60;pointer-events:none;box-shadow:0 14px 32px rgba(0,0,0,.28);transform:rotate(-1.5deg) scale(1.04);
+ border-radius:9px}
+.ghost[data-kind=fit]{box-shadow:0 0 0 3px var(--green),0 14px 32px rgba(0,0,0,.28)}
+.ghost[data-kind=push]{box-shadow:0 0 0 3px var(--amber),0 14px 32px rgba(0,0,0,.28)}
+.ghost[data-kind=clash]{box-shadow:0 0 0 3px var(--red),0 14px 32px rgba(0,0,0,.28)}
+.ghost.snapped{transition:left .11s ease-out,top .11s ease-out;transform:rotate(0) scale(1)}
+.hint{position:fixed;z-index:61;pointer-events:none;background:#111827;color:#fff;border-radius:8px;padding:6px 9px;font-size:12px;
+ max-width:300px;line-height:1.35;box-shadow:0 6px 18px rgba(0,0,0,.25)}
+.hint.fit{background:#0f7a3a}.hint.push{background:#9a5b00}.hint.clash{background:#b42318}
+.menu{position:absolute;z-index:70;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:6px;
+ box-shadow:0 10px 28px rgba(0,0,0,.2);display:grid;min-width:190px}
+.menu .t{font-weight:700;padding:4px 8px 6px;border-bottom:1px solid var(--line);margin-bottom:4px}
+.menu .t small{display:block;font-weight:500;color:var(--mut)}
+.menu button{appearance:none;border:0;background:none;text-align:left;padding:7px 8px;border-radius:6px;cursor:pointer;display:flex;gap:8px;align-items:center}
+.menu button:hover,.menu button.cur{background:var(--zone)}
+.menu .why{color:var(--red);padding:4px 8px;font-size:12px;max-width:260px}
+.dot{width:9px;height:9px;border-radius:50%;display:inline-block;flex:none}
+.toast{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);background:#111827;color:#fff;border-radius:10px;padding:9px 14px;
+ font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:80;max-width:92vw}
+.toast.on{opacity:1}
+.toast.bad{background:#b42318}
+.legend{display:flex;gap:12px;flex-wrap:wrap;color:var(--mut);font-size:12px}
+.legend span{display:inline-flex;gap:5px;align-items:center}
+.legend i{width:14px;height:10px;border-radius:3px;display:inline-block}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div class="toast" id="toast"></div>
+<script>
+(function () {
+  "use strict";
+  // ---------------- Streamlit component protocol (no build step needed) ----------------
+  function send(type, data) { window.parent.postMessage(Object.assign({ isStreamlitMessage: true, type: type }, data || {}), "*"); }
+  const ST = {
+    ready: () => send("streamlit:componentReady", { apiVersion: 1 }),
+    height: (h) => send("streamlit:setFrameHeight", { height: h }),
+    value: (v) => send("streamlit:setComponentValue", { value: v, dataType: "json" }),
+  };
+
+  const STATUSES = ["Scheduled", "Ongoing", "Done", "No-Show"];
+  const PIN = '<svg class="pin" viewBox="0 0 16 16"><path fill="currentColor" d="M10.4 1.2l4.4 4.4-1.5.7-2.5 2.5.3 3.2-1.4 1.4-2.9-2.9L2.6 14.7l-1.3-1.3 4.2-4.2-2.9-2.9L4 4.9l3.2.3 2.5-2.5z"/></svg>';
+  let D = null;            // static data for the day (people, rows, colours)
+  let S = null;            // editable state: meetings, parked, polish, statuses
+  let version = null;
+  const mine = new Set();  // versions this board produced (to ignore stale echoes)
+  const hist = [];
+  let showNotes = false, drag = null, menuFor = null, tt = 0, lastFlash = null;
+
+  const $ = (sel) => document.querySelector(sel);
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const fmt = (m) => String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
+  const clone = (x) => JSON.parse(JSON.stringify(x));
+  const slotOf = (k) => D.slotByK[k];
+
+  // ---------------- time / status ----------------
+  function nowInfo() {
+    try {
+      const f = new Intl.DateTimeFormat("en-CA", { timeZone: D.tz, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
+      const p = {}; f.formatToParts(new Date()).forEach((x) => (p[x.type] = x.value));
+      const today = p.year + "-" + p.month + "-" + p.day, m = (+p.hour % 24) * 60 + +p.minute;
+      return { cmp: !D.date ? 1 : D.date < today ? -1 : D.date > today ? 1 : 0, m: m, hm: fmt(m) };
+    } catch (e) { return { cmp: 1, m: 0, hm: "" }; }
+  }
+  function statusOf(m) {
+    const s = S.statuses[m.id];
+    if (STATUSES.indexOf(s) >= 0) return s;
+    if (m.k == null) return "Scheduled";
+    const n = nowInfo(), sl = slotOf(m.k);
+    if (n.cmp < 0) return "Done";
+    if (n.cmp > 0) return "Scheduled";
+    return n.m < sl.start ? "Scheduled" : n.m < sl.end ? "Ongoing" : "Done";
+  }
+
+  // ---------------- rules ----------------
+  const avail = (who, k) => !!(who && who.avail[k]);
+  function busy(st, k, skipIds) {
+    const s = new Set(), h = new Set(), t = new Set();
+    st.meetings.forEach((m) => { if (m.k === k && !(skipIds && skipIds.has(m.id))) { s.add(m.startup); h.add(m.host); t.add(m.table); } });
+    st.polish.forEach((p) => { if (p.k === k && !(skipIds && skipIds.has(p.id))) s.add(p.startup); });
+    return { s: s, h: h, t: t };
+  }
+  function meetingClash(st, m) {
+    if (m.k == null) return [];
+    const r = [], sl = slotOf(m.k), S_ = D.startups[m.startup], H_ = D.hosts[m.host];
+    if (!avail(S_, m.k)) r.push(m.startup + " is not available at " + fmt(sl.start));
+    if (!avail(H_, m.k)) r.push(m.host + " is not available at " + fmt(sl.start));
+    st.meetings.forEach((x) => {
+      if (x.id === m.id || x.k !== m.k) return;
+      if (x.startup === m.startup) r.push(m.startup + " is also meeting " + x.host + " at " + fmt(sl.start));
+      if (x.host === m.host) r.push(m.host + " is also meeting " + x.startup + " at " + fmt(sl.start));
+      if (x.table === m.table) r.push("Table " + m.table + " is double booked");
+    });
+    st.polish.forEach((p) => { if (p.k === m.k && p.startup === m.startup) r.push(m.startup + " is in pitch polishing at " + fmt(sl.start)); });
+    return r;
+  }
+  function polishClash(st, p) {
+    const r = [], sl = slotOf(p.k);
+    if (!D.polOk[p.k]) r.push("Pitch polishing does not run at " + fmt(sl.start));
+    if (!avail(D.startups[p.startup], p.k)) r.push(p.startup + " is not available at " + fmt(sl.start));
+    st.meetings.forEach((m) => { if (m.k === p.k && m.startup === p.startup) r.push(p.startup + " has a meeting with " + m.host + " at " + fmt(sl.start)); });
+    const n = st.polish.filter((x) => x.k === p.k).length;
+    if (n > D.polCap) r.push("Only " + D.polCap + " polishing slot(s) at " + fmt(sl.start));
+    return r;
+  }
+  function allClashes(st) {
+    const out = [];
+    st.meetings.forEach((m) => meetingClash(st, m).forEach((t) => out.push({ id: m.id, text: t })));
+    st.polish.forEach((p) => polishClash(st, p).forEach((t) => out.push({ id: p.id, text: t })));
+    const seen = new Set();
+    return out.filter((x) => (seen.has(x.text) ? false : (seen.add(x.text), true)));
+  }
+
+  // nearest valid free spot for a displaced meeting (ties go later, so it is "pushed" back)
+  function findSpot(st, x, avoid, prefer) {
+    const ok = (k, t) => {
+      if (avoid.indexOf(k) >= 0) return false;
+      if (!avail(D.startups[x.startup], k) || !avail(D.hosts[x.host], k)) return false;
+      const b = busy(st, k);
+      return !b.s.has(x.startup) && !b.h.has(x.host) && !b.t.has(t);
+    };
+    if (prefer && prefer.k != null && ok(prefer.k, prefer.t)) return prefer;
+    const origin = x.k == null ? D.ks[0] : x.k;
+    const order = D.ks.slice().sort((a, b) => Math.abs(a - origin) - Math.abs(b - origin) || b - a);
+    for (const k of order) {
+      if (avoid.indexOf(k) >= 0) continue;
+      const pref = [x.table].concat(hostTables(st, x.host, k));
+      for (let t of pref.concat(range(1, D.tables))) if (t >= 1 && t <= D.tables && ok(k, t)) return { k: k, t: t };
+    }
+    return null;
+  }
+  function hostTables(st, host, k) {
+    const near = st.meetings.filter((m) => m.host === host && m.k != null).sort((a, b) => Math.abs(a.k - k) - Math.abs(b.k - k));
+    return near.map((m) => m.table);
+  }
+  function findPolSpot(st, p, avoid) {
+    const order = D.ks.slice().sort((a, b) => Math.abs(a - p.k) - Math.abs(b - p.k) || b - a);
+    for (const k of order) {
+      if (avoid.indexOf(k) >= 0 || !D.polOk[k] || !avail(D.startups[p.startup], k)) continue;
+      const b = busy(st, k);
+      if (b.s.has(p.startup)) continue;
+      if (st.polish.filter((q) => q.k === k).length >= D.polCap) continue;
+      return k;
+    }
+    return null;
+  }
+  const movedText = (x) => x.to == null ? "Pushes " + x.name + " to Unplaced"
+    : x.to === "stays (clash)" ? x.name + " cannot move and now clashes" : "Pushes " + x.name + " to " + x.to;
+  const range = (a, b) => { const r = []; for (let i = a; i <= b; i++) r.push(i); return r; };
+
+  // ---------------- simulate a drop ----------------
+  function simulate(item, target) {
+    const st = { meetings: clone(S.meetings), parked: clone(S.parked), polish: clone(S.polish), statuses: S.statuses };
+    const moved = [];
+    if (item.type === "m") {
+      const A = S.meetings.find((m) => m.id === item.id) || S.parked.find((m) => m.id === item.id);
+      st.meetings = st.meetings.filter((m) => m.id !== A.id);
+      st.parked = st.parked.filter((m) => m.id !== A.id);
+      if (target.type === "tray") {
+        st.parked.push(Object.assign({}, A, { k: null, table: 0, lock: false }));
+        return { st: st, moved: moved, kind: "fit", reasons: [], text: "Unschedule " + A.startup + " with " + A.host };
+      }
+      const k = target.k, t = target.t;
+      const a = Object.assign({}, A, { k: k, table: t, lock: true });
+      const disp = st.meetings.filter((m) => m.k === k && (m.table === t || m.startup === a.startup || m.host === a.host));
+      st.meetings = st.meetings.filter((m) => disp.indexOf(m) < 0);
+      const dispP = st.polish.filter((p) => p.k === k && p.startup === a.startup);
+      st.polish = st.polish.filter((p) => dispP.indexOf(p) < 0);
+      st.meetings.push(a);
+      disp.forEach((x) => {
+        const sp = findSpot(st, x, [k], A.k != null ? { k: A.k, t: A.table } : null);
+        if (sp) { st.meetings.push(Object.assign({}, x, { k: sp.k, table: sp.t })); moved.push({ id: x.id, name: x.startup + " with " + x.host, to: fmt(slotOf(sp.k).start) }); }
+        else { st.parked.push(Object.assign({}, x, { k: null, table: 0 })); moved.push({ id: x.id, name: x.startup + " with " + x.host, to: null }); }
+      });
+      dispP.forEach((p) => {
+        const c = findPolSpot(st, p, [k]);
+        st.polish.push(Object.assign({}, p, { k: c == null ? p.k : c }));
+        moved.push({ id: p.id, name: p.startup + " polishing", to: c == null ? "stays (clash)" : fmt(slotOf(c).start) });
+      });
+      const reasons = meetingClash(st, a);
+      const kind = reasons.length ? "clash" : moved.length ? "push" : "fit";
+      let text = A.startup + " with " + A.host + " → " + fmt(slotOf(k).start) + ", Table " + t;
+      if (moved.length) text += "\n" + moved.map(movedText).join("\n");
+      if (reasons.length) text += "\n" + reasons.join("\n");
+      return { st: st, moved: moved, kind: kind, reasons: reasons, text: text, focus: a.id };
+    }
+    // polishing chip
+    const P = S.polish.find((p) => p.id === item.id);
+    if (target.type !== "pol") return null;
+    const k = target.k;
+    st.polish = st.polish.filter((p) => p.id !== P.id);
+    const p2 = Object.assign({}, P, { k: k });
+    const disp = st.meetings.filter((m) => m.k === k && m.startup === P.startup);
+    st.meetings = st.meetings.filter((m) => disp.indexOf(m) < 0);
+    let others = st.polish.filter((q) => q.k === k);
+    const bump = others.length >= D.polCap ? others.slice(0, others.length - D.polCap + 1) : [];
+    st.polish = st.polish.filter((q) => bump.indexOf(q) < 0);
+    st.polish.push(p2);
+    disp.forEach((x) => {
+      const sp = findSpot(st, x, [k], null);
+      if (sp) { st.meetings.push(Object.assign({}, x, { k: sp.k, table: sp.t })); moved.push({ id: x.id, name: x.startup + " with " + x.host, to: fmt(slotOf(sp.k).start) }); }
+      else { st.parked.push(Object.assign({}, x, { k: null, table: 0 })); moved.push({ id: x.id, name: x.startup + " with " + x.host, to: null }); }
+    });
+    bump.forEach((q) => {
+      const c = P.k != null && D.polOk[P.k] && avail(D.startups[q.startup], P.k) && !busy(st, P.k).s.has(q.startup) ? P.k : findPolSpot(st, q, [k]);
+      st.polish.push(Object.assign({}, q, { k: c == null ? q.k : c }));
+      moved.push({ id: q.id, name: q.startup + " polishing", to: c == null ? "stays (clash)" : fmt(slotOf(c).start) });
+    });
+    const reasons = polishClash(st, p2);
+    const kind = reasons.length ? "clash" : moved.length ? "push" : "fit";
+    let text = P.startup + " pitch polishing → " + fmt(slotOf(k).start);
+    if (moved.length) text += "\n" + moved.map(movedText).join("\n");
+    if (reasons.length) text += "\n" + reasons.join("\n");
+    return { st: st, moved: moved, kind: kind, reasons: reasons, text: text, focus: p2.id };
+  }
+
+  // ---------------- commit / undo ----------------
+  function snapshot() { return clone({ meetings: S.meetings, parked: S.parked, polish: S.polish, statuses: S.statuses }); }
+  function commit(next, flash) {
+    hist.push(snapshot()); if (hist.length > 50) hist.shift();
+    S.meetings = next.meetings; S.parked = next.parked; S.polish = next.polish; S.statuses = next.statuses;
+    lastFlash = flash || null;
+    version = "js-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7);
+    mine.add(version);
+    ST.value({ version: version, day: D.day, meetings: S.meetings, parked: S.parked, polish: S.polish, statuses: S.statuses });
+    render();
+  }
+  function undo() {
+    if (!hist.length) return;
+    const h = hist.pop();
+    S.meetings = h.meetings; S.parked = h.parked; S.polish = h.polish; S.statuses = h.statuses;
+    version = "js-" + Date.now() + "-u"; mine.add(version);
+    ST.value({ version: version, day: D.day, meetings: S.meetings, parked: S.parked, polish: S.polish, statuses: S.statuses });
+    render(); toast("Undone");
+  }
+
+  // ---------------- render ----------------
+  function chipHTML(m, st, clashSet) {
+    const H_ = D.hosts[m.host] || { color: "eeeeee", text: "1f2430", contact: "" };
+    const s = statusOf(m), bad = clashSet.has(m.id);
+    const cls = ["chip", s === "No-Show" ? "ns" : "", s === "Done" ? "done" : "", s === "Ongoing" ? "ongoing" : "", bad ? "bad" : ""].join(" ");
+    const star = D.startups[m.startup] && D.startups[m.startup].priority ? "★ " : "";
+    const who = H_.contact ? "(" + esc(H_.contact) + " - " + esc(m.host) + ")" : "(" + esc(m.host) + ")";
+    const title = bad ? ' title="' + esc(meetingClash(st, m).join("\n")) + '"' : "";
+    return '<div class="' + cls + '" data-drag="m" data-id="' + esc(m.id) + '" style="background:#' + H_.color + ";color:#" + H_.text + '"' + title + ">"
+      + (m.lock ? PIN : "") + "<b>" + star + esc(m.startup) + '</b><span class="h">' + who + '</span><span class="st ' + s + '">' + s + "</span></div>";
+  }
+  function polHTML(p, clashSet) {
+    const n = (D.polPrior[p.startup] || 0) + 1;
+    const bg = n === 1 ? "F4CCCC" : n === 2 ? "FFE599" : "D0E0E3";
+    return '<div class="chip pol' + (clashSet.has(p.id) ? " bad" : "") + '" data-drag="p" data-id="' + esc(p.id) + '" style="background:#' + bg + '"><b>'
+      + esc(p.startup) + "</b><small>" + (n === 1 ? "1st polishing" : n === 2 ? "2nd polishing" : n + "th polishing") + "</small></div>";
+  }
+  function render() {
+    if (!D) return;
+    const st = S, clashes = allClashes(st), clashSet = new Set(clashes.map((c) => c.id));
+    const n = nowInfo();
+    const counts = { Scheduled: 0, Ongoing: 0, Done: 0, "No-Show": 0 };
+    st.meetings.forEach((m) => counts[statusOf(m)]++);
+    const at = {}; st.meetings.forEach((m) => (at[m.k + "|" + m.table] = m));
+    const polAt = {}; st.polish.forEach((p) => (polAt[p.k] = polAt[p.k] || []).push(p));
+    // session spans
+    const spans = {}; let i = 0;
+    while (i < D.rows.length) {
+      if (D.rows[i].kind === "slot") { let j = i; while (j + 1 < D.rows.length && D.rows[j + 1].kind === "slot" && D.rows[j + 1].session === D.rows[i].session) j++; spans[i] = j - i + 1; i = j + 1; } else i++;
+    }
+    let head = "<tr><th>Session</th><th>Time</th>";
+    for (let t = 1; t <= D.tables; t++) head += "<th>Table " + t + "</th>";
+    head += (D.polOn ? "<th>Pitch polishing</th>" : "") + "<th>Waiting list</th></tr>";
+    let body = "";
+    D.rows.forEach((r, ri) => {
+      const cols = D.tables + (D.polOn ? 4 : 3);
+      if (r.kind !== "slot") { body += '<tr class="brk"><td class="sess">-</td><td class="time" style="color:var(--mut)">' + esc(r.time || "") + '</td><td colspan="' + (cols - 2) + '">' + esc(r.label) + "</td></tr>"; return; }
+      const isNow = n.cmp === 0 && n.m >= r.start && n.m < r.end;
+      let row = "<tr" + (isNow ? ' class="now"' : "") + ">";
+      if (spans[ri]) { const sx = D.sessions[r.session]; row += '<td class="sess" rowspan="' + spans[ri] + '">' + (sx ? esc(sx.name) + "<small>" + fmt(sx.start) + "–" + fmt(sx.end) + "</small>" : "-") + "</td>"; }
+      row += '<td class="time">' + fmt(r.start) + " – " + fmt(r.end) + "</td>";
+      for (let t = 1; t <= D.tables; t++) {
+        const m = at[r.k + "|" + t];
+        row += '<td><div class="cell" data-cell="' + r.k + "|" + t + '">' + (m ? chipHTML(m, st, clashSet) : '<span class="dash">-</span>') + "</div></td>";
+      }
+      if (D.polOn) row += '<td><div class="cell pc" data-pcell="' + r.k + '">' + (polAt[r.k] || []).map((p) => polHTML(p, clashSet)).join("") + "</div></td>";
+      const b = busy(st, r.k);
+      const waiting = Object.keys(D.startups).filter((s) => D.startups[s].avail[r.k] && !b.s.has(s));
+      row += '<td class="wait">' + (waiting.length ? waiting.map(esc).join(" • ") : "<i>None (all in sessions)</i>") + "</td></tr>";
+      body += row;
+    });
+    const notes = D.notes.length ? '<button class="btn' + (showNotes ? " on" : "") + '" data-act="notes">' + (showNotes ? "Hide" : "Show") + " attendance notes</button>" : "";
+    const parked = st.parked.map((m) => chipHTML(m, st, new Set([m.id]))).join("");
+    document.getElementById("app").innerHTML =
+      '<div class="bar"><button class="btn" data-act="undo"' + (hist.length ? "" : " disabled") + ">↶ Undo</button>"
+      + (clashes.length ? '<span class="pill bad" data-act="clashes" title="' + esc(clashes.map((c) => c.text).join("\n")) + '">' + clashes.length + " clash" + (clashes.length > 1 ? "es" : "") + "</span>" : '<span class="pill"><i style="background:var(--green)"></i>No clashes</span>')
+      + STATUSES.map((s) => '<span class="pill"><i style="background:' + { Scheduled: "#9ca3af", Ongoing: "#1240e0", Done: "#16a34a", "No-Show": "#d92d20" }[s] + '"></i>' + counts[s] + " " + s + "</span>").join("")
+      + notes + '<span class="spacer"></span>' + (n.cmp === 0 ? '<span class="clock">Now ' + n.hm + "</span>" : "")
+      + '<span class="legend"><span><i style="background:rgba(20,164,77,.35)"></i>fits</span><span><i style="background:rgba(224,138,0,.4)"></i>pushes others</span><span><i style="background:rgba(217,45,32,.4)"></i>clash</span></span></div>'
+      + (showNotes ? '<div class="notes">' + D.notes.map((x) => "<div><b>" + esc(x[0]) + ":</b> " + esc(x[1]) + "</div>").join("") + "</div>" : "")
+      + '<div class="tray" data-tray="1"><span class="lab">Unplaced</span>' + (parked || '<span style="color:var(--mut)">Drag a meeting here to unschedule it</span>') + "</div>"
+      + '<div class="wrap" id="wrap"><table class="g"><thead>' + head + "</thead><tbody>" + body + "</tbody></table></div>";
+    if (lastFlash) {
+      (lastFlash.snap || []).forEach((id) => { const el = document.querySelector('[data-id="' + cssEsc(id) + '"]'); if (el) el.classList.add("snap"); });
+      (lastFlash.bump || []).forEach((id) => { const el = document.querySelector('[data-id="' + cssEsc(id) + '"]'); if (el) el.classList.add("bump"); });
+      lastFlash = null;
+    }
+    fit();
+  }
+  const cssEsc = (s) => (window.CSS && CSS.escape ? CSS.escape(s) : String(s).replace(/"/g, '\\"'));
+  function fit() {
+    const wrap = document.getElementById("wrap"); if (!wrap) return;
+    const top = wrap.getBoundingClientRect().top;
+    const want = Math.min(wrap.scrollHeight + 4, D.maxHeight);
+    wrap.style.maxHeight = want + "px";
+    ST.height(Math.ceil(top + want + 16 + (menuFor ? 0 : 0)));
+  }
+
+  // ---------------- drag and drop ----------------
+  function targetAt(x, y) {
+    const el = document.elementFromPoint(x, y); if (!el) return null;
+    const c = el.closest("[data-cell]"); if (c) { const p = c.dataset.cell.split("|"); return { type: "cell", k: +p[0], t: +p[1], el: c }; }
+    const p = el.closest("[data-pcell]"); if (p) return { type: "pol", k: +p.dataset.pcell, el: p };
+    const tr = el.closest("[data-tray]"); if (tr) return { type: "tray", el: tr };
+    return null;
+  }
+  function clearHot() { document.querySelectorAll(".fit,.push,.clash,.hot").forEach((e) => { if (e.classList.contains("cell") || e.classList.contains("tray")) e.classList.remove("fit", "push", "clash", "hot"); }); }
+  function onDown(e) {
+    const c = e.target.closest("[data-drag]");
+    if (!c || e.button > 0) return;
+    closeMenu();
+    drag = { el: c, id: c.dataset.id, type: c.dataset.drag, x0: e.clientX, y0: e.clientY, started: false, tgt: null, plan: null };
+    try { c.setPointerCapture(e.pointerId); } catch (_) {}
+  }
+  function onMove(e) {
+    if (!drag) return;
+    if (!drag.started) {
+      if (Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) < 5) return;
+      drag.started = true;
+      const r = drag.el.getBoundingClientRect();
+      const g = drag.el.cloneNode(true); g.classList.add("ghost"); g.classList.remove("bad", "snap", "bump");
+      g.style.width = r.width + "px"; g.style.height = r.height + "px";
+      document.body.appendChild(g); drag.g = g; drag.w = r.width; drag.h = r.height;
+      drag.dx = drag.x0 - r.left; drag.dy = drag.y0 - r.top;
+      drag.el.classList.add("lift");
+      const hint = document.createElement("div"); hint.className = "hint"; hint.style.display = "none"; document.body.appendChild(hint); drag.hint = hint;
+    }
+    const t = targetAt(e.clientX, e.clientY);
+    const key = t ? t.type + (t.k != null ? t.k : "") + "|" + (t.t || "") : "";
+    if (key !== drag.key) {
+      drag.key = key; clearHot(); drag.tgt = t; drag.plan = null;
+      if (t && !(drag.type === "p" && t.type !== "pol") && !(drag.type === "m" && t.type === "pol")) {
+        drag.plan = simulate({ type: drag.type, id: drag.id }, t);
+        if (drag.plan) {
+          t.el.classList.add(t.type === "tray" ? "hot" : drag.plan.kind);
+          drag.g.dataset.kind = t.type === "tray" ? "" : drag.plan.kind;
+          drag.hint.className = "hint " + drag.plan.kind; drag.hint.textContent = ""; drag.hint.innerHTML = esc(drag.plan.text).replace(/\n/g, "<br>"); drag.hint.style.display = "block";
+        }
+      } else { if (drag.hint) drag.hint.style.display = "none"; drag.g.dataset.kind = ""; }
+    }
+    // magnetic snap: the ghost locks onto the cell under the pointer
+    if (drag.plan && drag.tgt && drag.tgt.type !== "tray") {
+      const r = drag.tgt.el.getBoundingClientRect();
+      drag.g.classList.add("snapped");
+      drag.g.style.left = (r.left + (r.width - drag.w) / 2) + "px"; drag.g.style.top = (r.top + (r.height - drag.h) / 2) + "px";
+    } else {
+      drag.g.classList.remove("snapped");
+      drag.g.style.left = (e.clientX - drag.dx) + "px"; drag.g.style.top = (e.clientY - drag.dy) + "px";
+    }
+    if (drag.hint && drag.hint.style.display !== "none") {
+      const hx = Math.min(e.clientX + 16, window.innerWidth - 310), hy = Math.min(e.clientY + 18, window.innerHeight - 90);
+      drag.hint.style.left = hx + "px"; drag.hint.style.top = hy + "px";
+    }
+    autoScroll(e);
+  }
+  function autoScroll(e) {
+    const w = document.getElementById("wrap"); if (!w) return;
+    const r = w.getBoundingClientRect(), pad = 40;
+    if (e.clientY > r.bottom - pad) w.scrollTop += 14; else if (e.clientY < r.top + pad && e.clientY > r.top - 60) w.scrollTop -= 14;
+    if (e.clientX > r.right - pad) w.scrollLeft += 14; else if (e.clientX < r.left + pad) w.scrollLeft -= 14;
+  }
+  function endDrag(cancel) {
+    if (!drag) return;
+    const d = drag; drag = null; clearHot();
+    if (d.g) d.g.remove(); if (d.hint) d.hint.remove();
+    if (d.el) d.el.classList.remove("lift");
+    if (!d.started) { openMenu(d.el); return; }
+    if (cancel || !d.plan) return;
+    const p = d.plan;
+    commit(p.st, { snap: [p.focus], bump: p.moved.map((x) => x.id) });
+    if (p.kind === "clash") toast("Placed with a clash. " + p.reasons[0], true);
+    else if (p.moved.length) toast(p.moved.map(movedText).join(" · "));
+  }
+
+  // ---------------- click menu ----------------
+  function openMenu(el) {
+    closeMenu();
+    const id = el.dataset.id, type = el.dataset.drag;
+    const item = type === "m" ? S.meetings.find((m) => m.id === id) || S.parked.find((m) => m.id === id) : S.polish.find((p) => p.id === id);
+    if (!item) return;
+    menuFor = { id: id, type: type };
+    const m = document.createElement("div"); m.className = "menu"; m.id = "menu";
+    let h = "";
+    if (type === "m") {
+      const cur = STATUSES.indexOf(S.statuses[id]) >= 0 ? S.statuses[id] : "Auto";
+      const why = item.k != null ? meetingClash(S, item) : [];
+      h += '<div class="t">' + esc(item.startup) + "<small>with " + esc(item.host) + (item.k != null ? " · " + fmt(slotOf(item.k).start) + " · Table " + item.table : " · unplaced") + "</small></div>";
+      why.forEach((w) => (h += '<div class="why">' + esc(w) + "</div>"));
+      if (item.k != null) {
+        [["Auto", "#cbd2e0"], ["Scheduled", "#9ca3af"], ["Ongoing", "#1240e0"], ["Done", "#16a34a"], ["No-Show", "#d92d20"]].forEach((x) => {
+          h += '<button data-st="' + x[0] + '"' + (cur === x[0] ? ' class="cur"' : "") + '><span class="dot" style="background:' + x[1] + '"></span>' + (x[0] === "Auto" ? "Auto (follows the clock)" : x[0]) + "</button>";
+        });
+        h += '<button data-mact="pin">' + (item.lock ? "Unpin" : "Pin here") + "</button>";
+        h += '<button data-mact="park">Unschedule</button>';
+      } else h += '<div class="why" style="color:var(--mut)">Drag it onto a table to schedule it</div>';
+    } else {
+      h += '<div class="t">' + esc(item.startup) + "<small>pitch polishing · " + fmt(slotOf(item.k).start) + "</small></div>";
+      polishClash(S, item).forEach((w) => (h += '<div class="why">' + esc(w) + "</div>"));
+      h += '<button data-mact="delpol">Remove this polishing slot</button>';
+    }
+    m.innerHTML = h;
+    document.body.appendChild(m);
+    const r = el.getBoundingClientRect(), mw = m.offsetWidth, mh = m.offsetHeight;
+    let left = r.left + window.scrollX, top = r.bottom + 6 + window.scrollY;
+    if (left + mw > document.documentElement.clientWidth - 6) left = Math.max(6, document.documentElement.clientWidth - mw - 6);
+    if (r.bottom + 6 + mh > window.innerHeight) top = Math.max(6, r.top - mh - 6 + window.scrollY);
+    m.style.left = left + "px"; m.style.top = top + "px";
+  }
+  function closeMenu() { const m = document.getElementById("menu"); if (m) m.remove(); menuFor = null; }
+  function menuClick(b) {
+    if (!menuFor) return;
+    const id = menuFor.id, next = { meetings: clone(S.meetings), parked: clone(S.parked), polish: clone(S.polish), statuses: Object.assign({}, S.statuses) };
+    if (b.dataset.st) { if (b.dataset.st === "Auto") delete next.statuses[id]; else next.statuses[id] = b.dataset.st; closeMenu(); commit(next); return; }
+    const a = b.dataset.mact;
+    if (a === "pin") { const m = next.meetings.find((x) => x.id === id); if (m) m.lock = !m.lock; }
+    if (a === "park") { const m = next.meetings.find((x) => x.id === id); if (m) { next.meetings = next.meetings.filter((x) => x.id !== id); next.parked.push(Object.assign({}, m, { k: null, table: 0, lock: false })); } }
+    if (a === "delpol") next.polish = next.polish.filter((p) => p.id !== id);
+    closeMenu(); commit(next);
+  }
+
+  // ---------------- misc ----------------
+  function toast(t, bad) { const e = document.getElementById("toast"); e.textContent = t; e.className = "toast on" + (bad ? " bad" : ""); clearTimeout(tt); tt = setTimeout(() => (e.className = "toast"), 3600); }
+  document.addEventListener("pointerdown", (e) => { if (!e.target.closest("#menu")) { if (menuFor && !e.target.closest("[data-drag]")) closeMenu(); onDown(e); } });
+  document.addEventListener("pointermove", onMove);
+  document.addEventListener("pointerup", () => endDrag(false));
+  document.addEventListener("pointercancel", () => endDrag(true));
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { if (drag) endDrag(true); closeMenu(); }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); undo(); }
+  });
+  document.addEventListener("click", (e) => {
+    const mb = e.target.closest("#menu button"); if (mb) { menuClick(mb); return; }
+    const b = e.target.closest("[data-act]"); if (!b) return;
+    if (b.dataset.act === "undo") undo();
+    if (b.dataset.act === "notes") { showNotes = !showNotes; render(); }
+    if (b.dataset.act === "clashes") {
+      const c = allClashes(S)[0]; if (!c) return;
+      const el = document.querySelector('[data-id="' + cssEsc(c.id) + '"]');
+      if (el) { el.scrollIntoView({ block: "center", inline: "center" }); el.classList.add("bump"); }
+    }
+  });
+  setInterval(() => { if (D && !drag && !menuFor) render(); }, 30000);
+  new ResizeObserver(() => { if (D) fit(); }).observe(document.body);
+
+  window.addEventListener("message", (event) => {
+    const msg = event.data;
+    if (!msg || msg.type !== "streamlit:render") return;
+    const args = msg.args || {};
+    const data = typeof args.data === "string" ? JSON.parse(args.data) : args.data;
+    if (msg.theme && msg.theme.base) document.body.classList.toggle("dark", msg.theme.base === "dark");
+    if (!data) return;
+    if (D && D.day === data.day && (data.version === version || mine.has(data.version))) { if (!drag && !menuFor) render(); return; }
+    const toSet = (arr) => { const o = {}; (arr || []).forEach((k) => (o[k] = true)); return o; };
+    D = {
+      day: data.day, tables: data.tables, tz: data.tz, date: data.date, rows: data.rows, sessions: data.sessions,
+      ks: data.rows.filter((r) => r.kind === "slot").map((r) => r.k), slotByK: {}, startups: {}, hosts: {},
+      polOk: toSet(data.polOk), polCap: data.polCap || 1, polOn: !!data.polOn, polPrior: data.polPrior || {}, notes: data.notes || [],
+      maxHeight: data.maxHeight || 900,
+    };
+    data.rows.forEach((r) => { if (r.kind === "slot") D.slotByK[r.k] = r; });
+    data.startups.forEach((s) => (D.startups[s.name] = { avail: toSet(s.avail), priority: s.priority }));
+    data.hosts.forEach((h) => (D.hosts[h.name] = { avail: toSet(h.avail), color: h.color, text: h.text, contact: h.contact }));
+    S = { meetings: data.meetings || [], parked: data.parked || [], polish: data.polish || [], statuses: data.statuses || {} };
+    version = data.version; hist.length = 0;
+    render();
+  });
+  // test hook: same logic as a pointer drop
+  window.__bm = { hist: () => hist.length, version: () => version, state: () => S,
+    drop: (type, id, target) => { const p = simulate({ type: type, id: id }, target); if (p) commit(p.st, { snap: [p.focus], bump: p.moved.map((x) => x.id) }); return p && { kind: p.kind, text: p.text }; } };
+  ST.ready();
+})();
+</script>
+</body>
+</html>

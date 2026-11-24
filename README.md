@@ -35,6 +35,14 @@ bizmatch/
 - **Re-plan mode**: in the middle of an event, keeps every meeting that is already Ongoing, Done or No-Show, and reschedules the rest.
 
 **Tab 3. Results & Live Board**
+- **Drag-and-drop board.** Drag any meeting to another table or time. It snaps onto the cell under the pointer, and a preview tells you what will happen before you let go:
+  - **Green**: it fits.
+  - **Amber**: meetings in the way (same table, same startup or same host at that time) get pushed to the nearest free time where both sides are available. If one cannot fit anywhere, it goes to *Unplaced*.
+  - **Red**: a clash, for example the startup or host is not available then. You can still drop it, and it stays marked with a red `!` until it is fixed.
+- Pitch polishing slots can be dragged the same way. A startup's meeting at the new polishing time gets pushed away.
+- Drop a meeting on **Unplaced** to take it out of the schedule, then drag it back later. Click a meeting to set its status, pin it or unschedule it. Ctrl+Z or ↶ Undo reverts a change.
+- Meetings you move are pinned. When you generate again with *Keep pinned meetings* ticked, they stay where you put them.
+- NOT HERE / ONLY notes stay hidden until you press **Show attendance notes**. In the Excel file they sit in a folded row group, opened with the `+` in the left margin.
 - A timeline for each day in the team's sheet layout: Session, Time Slot, Table 1 / Status 1 … Table N / Status N, **Polishing Schedule** and **Waiting List** (startups that are neither in a meeting nor in polishing, or `None (All in Sessions)`). The live board in the app also shows resting hosts.
 - Each host (organisation) keeps one colour everywhere, so you can follow a host across tables and sessions. Pink and yellow are reserved for polishing: pink is a startup's first polishing session, yellow its second.
 - `NOT HERE` and `ONLY 27 NOV` style notes at the top are generated from the Days column.
