@@ -110,6 +110,7 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:170px;max-width:320px;text-a
 .find .x.on{display:block}
 .find .info{color:var(--mut);font-size:12.5px}
 .find .info b{color:var(--ink)}
+body.dark .stag{background:hsl(var(--sh,220) 30% 22%);color:hsl(var(--sh,220) 60% 85%);box-shadow:none}
 .focusing .chip:not(.hit){opacity:.13;filter:grayscale(.8)}
 .focusing .chip.hit{box-shadow:0 0 0 3px #f5b800,0 4px 14px rgba(0,0,0,.18);z-index:1}
 .focusing .tag:not(.hit),.focusing .stag:not(.hit){opacity:.28}
@@ -125,7 +126,8 @@ td.free{min-width:150px;max-width:240px;vertical-align:middle}
 .tag small{font-weight:500;color:var(--mut)}
 .tag.lift{opacity:.3}
 .tag.ghost{border-style:solid;background:var(--panel)}
-.stag{display:inline-block;border-radius:5px;padding:0 5px;background:var(--zone);color:var(--mut);font-size:11px;line-height:1.5;cursor:pointer;margin:1px 0;transition:background .12s,box-shadow .12s}
+.stag{display:inline-block;border-radius:5px;padding:0 6px;background:hsl(var(--sh,220) 70% 91%);color:hsl(var(--sh,220) 35% 28%);
+ box-shadow:inset 0 0 0 1px hsl(var(--sh,220) 45% 80%);font-weight:600;font-size:11px;line-height:1.5;cursor:pointer;margin:1px 0;transition:background .12s,box-shadow .12s}
 .stag.fit{background:rgba(20,164,77,.18);color:var(--ink);box-shadow:0 0 0 2px var(--green)}
 .stag.clash{background:rgba(217,45,32,.14);color:var(--ink);box-shadow:0 0 0 2px var(--red)}
 .menu .pick{max-height:300px;overflow:auto;display:grid}
@@ -519,7 +521,7 @@ td.free{min-width:150px;max-width:240px;vertical-align:middle}
       }).join("") : '<span style="color:var(--mut);font-size:11.5px">' + tr("All busy") + "</span>") + "</div></td>";
       if (D.polOn) row += '<td><div class="cell pc" data-pcell="' + r.k + '">' + (polAt[r.k] || []).map((p) => polHTML(p, clashSet, F && F.has(p.startup))).join("") + "</div></td>";
       const waiting = Object.keys(D.startups).filter((s) => D.startups[s].avail[r.k] && !b.s.has(s));
-      row += '<td class="wait">' + (waiting.length ? waiting.map((s) => '<span class="stag' + (F && F.has(s) ? " hit" : "") + '" data-stag="' + esc(s) + '" data-k="' + r.k + '">' + esc(s) + "</span>").join(" ") : "<i>" + tr("None (all in sessions)") + "</i>") + "</td></tr>";
+      row += '<td class="wait">' + (waiting.length ? waiting.map((s) => '<span class="stag' + (F && F.has(s) ? " hit" : "") + '" data-stag="' + esc(s) + '" data-k="' + r.k + '" style="--sh:' + D.startups[s].hue + '">' + (D.startups[s].priority ? "★ " : "") + esc(s) + "</span>").join(" ") : "<i>" + tr("None (all in sessions)") + "</i>") + "</td></tr>";
       body += row;
     });
     const notes = D.notes.length ? '<button class="btn' + (showNotes ? " on" : "") + '" data-act="notes">' + tr(showNotes ? "Hide attendance notes" : "Show attendance notes") + "</button>" : "";
@@ -864,7 +866,8 @@ td.free{min-width:150px;max-width:240px;vertical-align:middle}
       names: data.names || {}, lang: data.lang || "en",
     };
     data.rows.forEach((r) => { if (r.kind === "slot") D.slotByK[r.k] = r; });
-    data.startups.forEach((s) => (D.startups[s.name] = { avail: toSet(s.avail), priority: s.priority, presenter: s.presenter || "", no: toSet(s.no), pref: toSet(s.pref) }));
+    // each startup keeps one soft colour (golden angle hues) so you can follow it down the waiting list
+    data.startups.forEach((s, i) => (D.startups[s.name] = { hue: Math.round((i * 137.508 + 205) % 360), avail: toSet(s.avail), priority: s.priority, presenter: s.presenter || "", no: toSet(s.no), pref: toSet(s.pref) }));
     D.other = data.other || {};
     data.hosts.forEach((h) => (D.hosts[h.name] = { avail: toSet(h.avail), color: h.color, text: h.text, contact: h.contact }));
     S = { meetings: data.meetings || [], parked: data.parked || [], polish: data.polish || [], statuses: data.statuses || {} };
