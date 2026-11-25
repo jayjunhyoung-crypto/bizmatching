@@ -963,7 +963,7 @@ def _table_sheet(wb, title, heading, sub, df, widths, center=(), wrap=(), bar=No
     hr, line = 5, Side(style="thin", color=C_LINE)
     for j, col in enumerate(df.columns):
         c = w.cell(hr, 2 + j, col)
-        c.fill, c.font = _fill(C_NAVY), _f(10, True, "FFFFFF")
+        c.fill, c.font = _fill(C_HEAD), _f(10, True, C_HEAD_TXT)
         c.alignment = Alignment(horizontal="center" if col in center else "left", vertical="center", indent=0 if col in center else 1)
         w.column_dimensions[get_column_letter(2 + j)].width = widths.get(col, 16)
     w.row_dimensions[hr].height = 26
@@ -992,12 +992,12 @@ def _table_sheet(wb, title, heading, sub, df, widths, center=(), wrap=(), bar=No
 
 
 # Host colours avoid pink and yellow, which are reserved for pitch polishing
-HOST_PALETTE = ["D9EAD3", "CFE2F3", "D9D2E9", "76A5AF", "134F5C", "F6B26B", "8E7CC3", "E69138",
-                "B6D7A8", "351C75", "93C47D", "A4C2F4", "B4A7D6", "45818E", "6FA8DC", "6AA84F",
-                "3D85C6", "B45F06", "A2C4C9", "38761D"]
+# Pastel by default, one hue apart, and clear of the polishing pink and yellow
+HOST_PALETTE = ["CFE5FA", "CDEFD9", "E0D7F5", "FDDCC4", "C9ECEC", "E4EFC9", "D6DCF7", "F0E2D0",
+                "D3E8E1", "E9D8EF", "D7E4EE", "DDEBD3", "DCE3EA", "F6E7C9", "C7E6F2", "E3DDF0"]
 POLISH_FILL = {1: "F4CCCC", 2: "FFE599"}
 POLISH_FILL_MORE = "D0E0E3"
-C_HEAD, C_GRID, C_BREAK = "2B3A67", "D9DDE5", "F1F2F5"
+C_HEAD, C_HEAD_TXT, C_GRID, C_BREAK = "EEF1F6", "334155", "D9DDE5", "F6F7F9"
 
 
 def text_on(hex_fill: str) -> str:
@@ -1081,7 +1081,7 @@ def build_practice_sheet(wb, cfg, slots, startups, polish, statuses, now, notes,
         for cc, txt in enumerate((f"Time Slot ({cfg.interval}m)", "Startup", "Presenter", "Status",
                                   "Focus / Mentor Note"), 2):
             c = ws.cell(r, cc, txt)
-            c.fill, c.font, c.alignment, c.border = _fill(C_HEAD), _f(10, True, "FFFFFF"), center, box
+            c.fill, c.font, c.alignment, c.border = _fill(C_HEAD), _f(10, True, C_HEAD_TXT), center, box
         ws.row_dimensions[r].height = 24
         r += 1
         for row in day_rows(d, cfg, slots, startups, [], []):
@@ -1194,7 +1194,7 @@ def build_excel(cfg, slots, startups, hosts, meetings, statuses, now, polish=(),
                  + [(PC, cfg.nm("polish")), (WC, cfg.nm("waiting"))])
         for c_, txt in heads:
             c = ws.cell(r, c_, txt)
-            c.fill, c.font, c.alignment, c.border = _fill(C_HEAD), _f(10, True, "FFFFFF"), center, box
+            c.fill, c.font, c.alignment, c.border = _fill(C_HEAD), _f(10, True, C_HEAD_TXT), center, box
         ws.row_dimensions[r].height = 26
         r += 1
 
