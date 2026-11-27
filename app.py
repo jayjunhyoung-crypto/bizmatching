@@ -64,6 +64,8 @@ HOST_COLS = ["Name", "Contact", "Type", "Days", "Available From", "Available Unt
 TIMEZONES = ["Asia/Singapore", "Asia/Seoul", "Asia/Tokyo", "Asia/Hong_Kong", "Asia/Shanghai",
              "Asia/Jakarta", "Asia/Bangkok", "Asia/Kolkata", "Asia/Dubai", "Europe/London",
              "Europe/Berlin", "America/New_York", "America/Los_Angeles", "UTC"]
+TZ_HINT = {"America/Los_Angeles": "America/Los_Angeles (Las Vegas, CES)", "America/New_York": "America/New_York (Boston, NYC)",
+           "Asia/Seoul": "Asia/Seoul (Seoul)", "Asia/Singapore": "Asia/Singapore (Singapore)"}
 TIME_VALID = r"^$|^([01]?\d|2[0-4])[:.][0-5]\d$"
 TIME_RE = re.compile(r"^(\d{1,2})[:.](\d{2})(?::\d{2})?$")
 RANGE_RE = re.compile(
@@ -2201,6 +2203,10 @@ def board_payload(day, cfg, slots, startups, hosts, r) -> dict:
         if p.day < day:
             prior[p.startup] += 1
     day_pol = [p for p in polish if p.day == day]
+    other_n = defaultdict(int)
+    for m in r["meetings"]:
+        if m["day"] != day:
+            other_n[m["startup"]] += 1
     return {
         "version": r.get("version") or f"py-{r['id']}",
         "day": day, "tables": cfg.tables, "tz": cfg.tz, "date": str(cfg.day_date(day) or ""),
@@ -2208,14 +2214,16 @@ def board_payload(day, cfg, slots, startups, hosts, r) -> dict:
         "startups": [{"name": x.name, "priority": x.priority, "presenter": x.presenter,
                       "avail": [z.k for z in ds if x.available(z)],
                       "no": [h.name for h in hosts if not compatible(x, h)],
-                      "pref": [h.name for h in hosts if prefers(h, x)]}
+                      "pref": [h.name for h in hosts if prefers(h, x)],
+                      "tags": x.domain_text, "otherN": other_n[x.name]}
                      for x in startups if not x.absent],
         # pairs already scheduled on other days (each startup meets a partner once)
         "other": {**{f"{m['startup']}|{m['host']}": "-" for m in r.get("parked", []) if m["day"] != day},
                   **{f"{m['startup']}|{m['host']}": f"{cfg.day_short(m['day'])} {fmt(m['start'])}"
                      for m in r["meetings"] if m["day"] != day}},
         "hosts": [{"name": h.name, "contact": h.contact, "color": hcol[h.name], "text": text_on(hcol[h.name]),
-                   "avail": [z.k for z in ds if h.available(z)]} for h in hosts],
+                   "avail": [z.k for z in ds if h.available(z)], "kind": h.kind, "only": h.only_text,
+                   "prefer": h.prefer_text, "maxM": h.max_m} for h in hosts],
         "meetings": [{"id": f"{m['startup']}|{m['host']}", "startup": m["startup"], "host": m["host"],
                       "k": m["k"], "table": m["table"], "lock": bool(m.get("lock"))}
                      for m in r["meetings"] if m["day"] == day],
@@ -2356,7 +2364,8 @@ def setup_tab():
         a, b = st.columns(2)
         a.time_input(T("lunch_from"), key="t_lunch_s", step=timedelta(minutes=5), disabled=not s.lunch_on)
         b.time_input(T("lunch_until"), key="t_lunch_e", step=timedelta(minutes=5), disabled=not s.lunch_on)
-        st.selectbox(T("tz"), TIMEZONES, key="tz", help=T("tz_help"))
+        st.selectbox(T("tz"), TIMEZONES, key="tz", help=T("tz_help"),
+                     format_func=lambda z: TZ_HINT.get(z, z))
 
     cfg = current_cfg()
     slots = build_slots(cfg)
