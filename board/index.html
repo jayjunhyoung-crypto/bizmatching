@@ -138,6 +138,16 @@ td.free{min-width:150px;max-width:240px;vertical-align:middle}
 .tag.ghost{border-style:solid;background:var(--panel)}
 .stag{display:inline-block;border-radius:5px;padding:0 6px;background:hsl(var(--sh,220) var(--ss,70%) var(--sl,90%));color:hsl(var(--sh,220) 40% 24%);
  box-shadow:inset 0 0 0 1px hsl(var(--sh,220) 40% 74%);font-weight:600;font-size:11px;line-height:1.5;cursor:pointer;margin:1px 0;transition:background .12s,box-shadow .12s}
+details.fold>summary{list-style:none;cursor:pointer;user-select:none}
+details.fold>summary::-webkit-details-marker{display:none}
+details.fold>summary .sec{cursor:pointer}
+details.fold>summary .sec span:first-child::before{content:"▸ ";display:inline-block;transition:transform .15s}
+details.fold[open]>summary .sec span:first-child::before{transform:rotate(90deg)}
+details.fold>summary:hover .sec{color:var(--ink)}
+.wmore{appearance:none;border:1px dashed var(--line);background:none;border-radius:5px;padding:0 6px;font-size:10.5px;color:var(--mut);cursor:pointer;margin:2px 0;font-weight:700}
+.wmore:hover{border-color:var(--cob);color:var(--cob)}
+.offtags{margin-top:3px;padding-top:3px;border-top:1px dashed var(--line)}
+.stag.off{background:transparent!important;box-shadow:inset 0 0 0 1px var(--line)!important;color:var(--mut)!important;font-weight:500}
 .stag sup{font-size:9px;font-weight:800;margin-left:3px;opacity:.75;vertical-align:1px}
 .chip .sub{position:absolute;top:-7px;right:-6px;background:var(--cob);color:#fff;font-size:9.5px;font-weight:800;border-radius:99px;padding:1px 6px;box-shadow:0 1px 4px rgba(0,0,0,.2)}
 .rcard .tabs{display:flex;gap:4px;padding:8px 14px 0}
@@ -234,7 +244,7 @@ td.free{min-width:150px;max-width:240px;vertical-align:middle}
       "{0} is not a match for {1}": "{0}은(는) {1}의 제외 분야예요",
       "All tables are taken at {0}": "{0}에는 빈 테이블이 없어요",
       "New meeting · {0}": "새 미팅 · {0}", "Who meets {0}?": "누가 {0}와(과) 만날까요?",
-      "{0} today": "오늘 {0}개", "outside the rules": "조건 밖", "{0} excluded": "제외 분야 {0}", "{0} only": "{0}만 만남",
+      "{0} today": "오늘 {0}개", "{0} more free": "명단 밖 {0}", "Already met or booked with every partner here": "여기 파트너는 이미 다 만났거나 잡혀 있어요", "Outside the rules of: {0}": "조건 밖인 파트너: {0}", "outside the rules": "조건 밖", "{0} excluded": "제외 분야 {0}", "{0} only": "{0}만 만남",
       "Put in anyway": "그래도 넣기", "Time works, rules do not": "시간은 맞지만 조건은 안 맞아요",
       "Free now and never met, but outside the partner's domain rules. Check with the partner before putting them in.": "지금 비어 있고 안 만난 곳이지만 파트너의 분야 조건 밖이에요. 넣기 전에 파트너에게 한 번 물어보세요.", "Has not met: {0}": "아직 안 만난 파트너: {0}", "No one new for the partners here": "여기 파트너들을 아직 안 만난 스타트업이 없어요",
       "Who steps in?": "누가 대신 들어갈까요?", "{0} cancelled": "{0} 취소", "Put in": "넣기", "never met": "처음 만남",
@@ -262,6 +272,7 @@ td.free{min-width:150px;max-width:240px;vertical-align:middle}
   let version = null;
   const mine = new Set();  // versions this board produced (to ignore stale echoes)
   const hist = [];
+  const openWait = new Set();
   let showNotes = false, drag = null, menuFor = null, tt = 0, lastFlash = null, focusQ = "", full = false;
   const norm = (x) => String(x || "").toLowerCase().trim();
   function focusNames() {        // the startups / partners the search box points at
@@ -593,10 +604,16 @@ td.free{min-width:150px;max-width:240px;vertical-align:middle}
         return '<span class="tag' + (F && F.has(h) ? " hit" : "") + '" data-drag="h" data-id="' + esc(h) + '" data-k="' + r.k + '" style="--hc:#' + H_.color + '" title="' + esc(H_.contact ? H_.contact + " · " + h : h) + '"><i></i>' + esc(h) + "</span>";
       }).join("") : '<span style="color:var(--mut);font-size:11.5px">' + tr("All busy") + "</span>") + "</div></td>";
       if (D.polOn) row += '<td><div class="cell pc" data-pcell="' + r.k + '">' + (polAt[r.k] || []).map((p) => polHTML(p, clashSet, F && F.has(p.startup))).join("") + "</div></td>";
-      const waiting = waitingAt(st, r.k);
+      const waiting = waitingAt(st, r.k), offW = waiting.off;
+      const stagH = (w, off) => '<span class="stag' + (off ? " off" : "") + (F && F.has(w.s) ? " hit" : "") + '" data-stag="' + esc(w.s) + '" data-k="' + r.k + '" title="'
+        + esc(off ? (w.hosts.length ? tr("Outside the rules of: {0}", w.hosts.map((h) => h + " (" + whyNot(w.s, h) + ")").join(", ")) : tr("Already met or booked with every partner here"))
+                  : tr("Has not met: {0}", w.hosts.join(", ")))
+        + '" style="--sh:' + D.startups[w.s].tone.h + ";--sl:" + D.startups[w.s].tone.l + "%;--ss:" + D.startups[w.s].tone.s + '%">' + (D.startups[w.s].priority ? "★ " : "") + esc(w.s) + (w.hosts.length ? "<sup>" + w.hosts.length + "</sup>" : "") + "</span>";
+      const more = offW.length ? ' <button class="wmore" data-wmore="' + r.k + '">' + tr("{0} more free", offW.length) + (openWait.has(r.k) ? " ▴" : " ▾") + "</button>"
+        + (openWait.has(r.k) ? '<div class="offtags">' + offW.map((w) => stagH(w, true)).join(" ") + "</div>" : "") : "";
       row += '<td class="wait">' + (waiting.length ? waiting.map((w) => { const s = w.s;
         return '<span class="stag' + (F && F.has(s) ? " hit" : "") + '" data-stag="' + esc(s) + '" data-k="' + r.k + '" title="' + esc(tr("Has not met: {0}", w.hosts.join(", "))) + '" style="--sh:' + D.startups[s].tone.h + ";--sl:" + D.startups[s].tone.l + "%;--ss:" + D.startups[s].tone.s + '%">' + (D.startups[s].priority ? "★ " : "") + esc(s) + "<sup>" + w.hosts.length + "</sup></span>"; }).join(" ")
-        : "<i>" + tr(Object.keys(D.startups).some((s) => D.startups[s].avail[r.k] && !b.s.has(s)) ? "No one new for the partners here" : "None (all in sessions)") + "</i>") + "</td></tr>";
+        : "<i>" + tr(Object.keys(D.startups).some((s) => D.startups[s].avail[r.k] && !b.s.has(s)) ? "No one new for the partners here" : "None (all in sessions)") + "</i>") + more + "</td></tr>";
       body += row;
     });
     const notes = D.notes.length ? '<button class="btn' + (showNotes ? " on" : "") + '" data-act="notes">' + tr(showNotes ? "Hide attendance notes" : "Show attendance notes") + "</button>" : "";
@@ -839,12 +856,15 @@ td.free{min-width:150px;max-width:240px;vertical-align:middle}
   function metOrBooked(st, s, h) { return !!pairAt(st, s, h); }
   function waitingAt(st, k) {
     const b = busy(st, k), hs = present(k);
-    const out = [];
+    const out = [], off = [];
     Object.keys(D.startups).forEach((s) => {
       if (!D.startups[s].avail[k] || b.s.has(s)) return;
       const fresh = hs.filter((h) => !(D.startups[s].no || {})[h] && !metOrBooked(st, s, h));
-      if (fresh.length) out.push({ s: s, hosts: fresh });
+      if (fresh.length) { out.push({ s: s, hosts: fresh }); return; }
+      // free but not on the list: everyone here is already met, or only partners outside the rules are left
+      off.push({ s: s, hosts: hs.filter((h) => (D.startups[s].no || {})[h] && !metOrBooked(st, s, h)) });
     });
+    out.off = off.sort((a, c) => c.hosts.length - a.hosts.length || a.s.localeCompare(c.s));
     return out.sort((a, c) => (D.startups[c.s].priority ? 1 : 0) - (D.startups[a.s].priority ? 1 : 0) || c.hosts.length - a.hosts.length || a.s.localeCompare(c.s));
   }
   function whyNot(s, h) {
@@ -931,11 +951,9 @@ td.free{min-width:150px;max-width:240px;vertical-align:middle}
     x += '<div class="lead">' + (side === "s" ? tr("Startups free now who have not met {0}. Best fit first.", esc(m.host)) : tr("Partners free now who have not met {0}. Best fit first.", esc(m.startup))) + "</div>";
     x += '<div class="list">' + (ok.length ? ok.slice(0, 12).map(rowF).join("")
       : '<div class="empty">' + (side === "s" ? tr("Nobody free right now has not met {0}.", esc(m.host)) : tr("No free partner right now has not met {0}.", esc(m.startup))) + "</div>") + "</div>";
-    if (off.length) {
-      x += '<div class="sec"><span>' + tr("Time works, rules do not") + "</span><span>" + off.length + "</span></div>";
-      x += '<div class="lead" style="padding-top:0">' + tr("Free now and never met, but outside the partner's domain rules. Check with the partner before putting them in.") + "</div>";
-      x += '<div class="list">' + off.slice(0, 12).map(rowF).join("") + "</div>";
-    }
+    if (off.length) x += fold(tr("Time works, rules do not"), off.length,
+      '<div class="lead" style="padding-top:0">' + tr("Free now and never met, but outside the partner's domain rules. Check with the partner before putting them in.") + "</div>"
+      + '<div class="list">' + off.slice(0, 12).map(rowF).join("") + "</div>");
     x += '<div class="lead" style="padding-bottom:10px">' + tr("The cancelled meeting moves to Unplaced as a no-show, so you can rebook it later.") + "</div>";
     box.innerHTML = x;
     placeMenu(box, el);
@@ -1010,6 +1028,9 @@ td.free{min-width:150px;max-width:240px;vertical-align:middle}
     const tags = (D.startups[x.s] || {}).tags; if (tags) t.push("<span>" + esc(tags) + "</span>");
     return t.join("");
   }
+  function fold(title, n, body) {   // a section that stays closed until clicked, so cards open short and tidy
+    return '<details class="fold"><summary><div class="sec"><span>' + title + "</span><span>" + n + "</span></div></summary>" + body + "</details>";
+  }
   function openPartner(h, el) {
     closeMenu();
     const P = partnerData(h), H_ = P.H; if (!H_) return;
@@ -1029,12 +1050,13 @@ td.free{min-width:150px;max-width:240px;vertical-align:middle}
     const rec = P.left.filter((r) => r.spot.n).slice(0, 5), rest = P.left.filter((r) => rec.indexOf(r) < 0);
     x += '<div class="sec"><span>' + tr("Recommended") + "</span></div>";
     x += '<div class="list">' + (rec.length ? rec.map(rowH).join("") : '<div class="empty">' + (P.left.length ? tr("No free time today") : tr("Everyone eligible is already scheduled.")) + "</div>") + "</div>";
-    if (rest.length) x += '<div class="sec"><span>' + tr("Not met yet") + "</span><span>" + rest.length + "</span></div>" + '<div class="list">' + rest.map(rowH).join("") + "</div>";
-    if (P.off.length) x += '<div class="sec"><span>' + tr("Time works, rules do not") + "</span><span>" + P.off.length + "</span></div>"
-      + '<div class="lead" style="padding-top:0;padding-left:14px;color:var(--mut);font-size:12px">' + tr("Free now and never met, but outside the partner's domain rules. Check with the partner before putting them in.") + "</div>"
-      + '<div class="list">' + P.off.map(rowH).join("") + "</div>";
-    x += '<div class="sec"><span>' + tr("Already meeting") + "</span><span>" + P.met.length + "</span></div>";
-    x += '<div class="met">' + (P.met.length ? P.met.map((mm) => "<span>" + esc(mm.s) + " <small>" + esc(mm.when) + "</small></span>").join("") : '<span class="empty" style="background:none">-</span>') + "</div>";
+    if (rest.length) x += fold(tr("Not met yet"), rest.length, '<div class="list">' + rest.map(rowH).join("") + "</div>");
+    if (P.off.length) x += fold(tr("Time works, rules do not"), P.off.length,
+      '<div class="lead" style="padding-top:0;padding-left:14px;color:var(--mut);font-size:12px">' + tr("Free now and never met, but outside the partner's domain rules. Check with the partner before putting them in.") + "</div>"
+      + '<div class="list">' + P.off.map(rowH).join("") + "</div>");
+    if (P.met.length) x += fold(tr("Already meeting"), P.met.length,
+      '<div class="met">' + P.met.map((mm) => "<span>" + esc(mm.s) + " <small>" + esc(mm.when) + "</small></span>").join("") + "</div>");
+    x += '<div style="height:8px"></div>';
     m.innerHTML = x;
     placeMenu(m, el);
   }
@@ -1142,6 +1164,7 @@ td.free{min-width:150px;max-width:240px;vertical-align:middle}
   });
   document.addEventListener("click", (e) => {
     const mb = e.target.closest("#menu button"); if (mb) { menuClick(mb); return; }
+    const wm = e.target.closest("[data-wmore]"); if (wm) { const k = +wm.dataset.wmore; if (openWait.has(k)) openWait.delete(k); else openWait.add(k); render(); return; }
     const sg = e.target.closest("[data-stag]"); if (sg && !drag) { setFocus(focusQ === sg.dataset.stag ? "" : sg.dataset.stag); return; }
     const b = e.target.closest("[data-act]"); if (!b) return;
     if (b.dataset.act === "undo") undo();
