@@ -991,12 +991,12 @@ def _table_sheet(wb, title, heading, sub, df, widths, center=(), wrap=(), bar=No
     return w, hr
 
 
-# Host colours avoid pink and yellow, which are reserved for pitch polishing
-# Pastel by default, one hue apart, and clear of the polishing pink and yellow
+# Pastel by default, one hue apart. Polishing uses grey, so pink and yellow are free here
 HOST_PALETTE = ["CFE5FA", "CDEFD9", "E0D7F5", "FDDCC4", "C9ECEC", "E4EFC9", "D6DCF7", "F0E2D0",
-                "D3E8E1", "E9D8EF", "D7E4EE", "DDEBD3", "DCE3EA", "F6E7C9", "C7E6F2", "E3DDF0"]
-POLISH_FILL = {1: "F4CCCC", 2: "FFE599"}
-POLISH_FILL_MORE = "D0E0E3"
+                "D3E8E1", "E9D8EF", "FBEFC0", "DDEBD3", "F9D5DC", "F6E7C9", "C7E6F2", "E3DDF0"]
+# Pitch polishing is neutral slate grey (1st light, 2nd deeper) so every pastel stays free for partners and startups
+POLISH_FILL = {1: "E4E8EF", 2: "C9D0DC"}
+POLISH_FILL_MORE = "F1F3F6"
 C_HEAD, C_HEAD_TXT, C_GRID, C_BREAK = "EEF1F6", "334155", "D9DDE5", "F6F7F9"
 
 

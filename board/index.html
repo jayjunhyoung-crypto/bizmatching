@@ -75,7 +75,7 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:170px;max-width:320px;text-a
 .chip.bump{animation:bump .6s ease}
 @keyframes snap{0%{transform:scale(1.10)}55%{transform:scale(.96)}100%{transform:scale(1)}}
 @keyframes bump{0%{box-shadow:0 0 0 0 rgba(224,138,0,.9)}100%{box-shadow:0 0 0 12px rgba(224,138,0,0)}}
-.chip.pol{color:#1f2430;min-height:50px;padding:4px 6px}
+.chip.pol{color:#1f2430;min-height:50px;padding:4px 6px;box-shadow:inset 0 0 0 1.5px #64748b}
 .chip.pol small{font-size:10px;opacity:.65;font-weight:600}
 .ghost{position:fixed;z-index:60;pointer-events:none;box-shadow:0 14px 32px rgba(0,0,0,.28);transform:rotate(-1.5deg) scale(1.04);
  border-radius:9px}
@@ -213,11 +213,11 @@ td.free{min-width:150px;max-width:240px;vertical-align:middle}
     if (exact.length) return new Set(exact);
     return new Set(all.filter((n) => norm(n).indexOf(q) >= 0 || norm((D.hosts[n] || {}).contact).indexOf(q) >= 0));
   }
-  // Evenly spaced hues from green through blue to violet, skipping the pinks, reds and yellows used for
-  // polishing. Neighbouring hues get one of three lightness levels, and the order is shuffled so startups next to
+  // Hues spread evenly around the whole colour wheel (polishing is grey, so nothing is reserved).
+  // Neighbouring hues get one of three lightness levels, and the order is shuffled so startups next to
   // each other in the list look clearly different.
   function startupTones(n) {
-    const lo = 88, hi = 282, out = [];
+    const lo = 0, hi = 360 * (1 - 1 / Math.max(n, 1)), out = [];
     if (!n) return out;
     let step = Math.max(1, Math.round(n * 0.382)); while (gcd(step, n) !== 1) step++;
     for (let i = 0; i < n; i++) {
@@ -487,7 +487,7 @@ td.free{min-width:150px;max-width:240px;vertical-align:middle}
   }
   function polHTML(p, clashSet, hit) {
     const n = (D.polPrior[p.startup] || 0) + 1;
-    const bg = n === 1 ? "F4CCCC" : n === 2 ? "FFE599" : "D0E0E3";
+    const bg = n === 1 ? "E4E8EF" : n === 2 ? "C9D0DC" : "F1F3F6";
     const s = statusOf(p), who = (D.startups[p.startup] || {}).presenter;
     const cls = ["chip pol", hit ? "hit" : "", clashSet.has(p.id) ? "bad" : "", s === "No-Show" ? "ns" : "", s === "Done" ? "done" : "", s === "Ongoing" ? "ongoing" : ""].join(" ");
     const tip = [p.note ? tr("Focus: {0}", p.note) : ""].concat(clashSet.has(p.id) ? polishClash(S, p) : []).filter(Boolean).join("\n");

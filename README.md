@@ -51,7 +51,7 @@ bizmatch/
 - **Pin** a meeting from its menu to lock it: a pinned meeting cannot be dragged or pushed by other moves, and it always stays where it is when you generate again. ★ marks a priority startup.
 - NOT HERE / ONLY notes stay hidden until you press **Show attendance notes**. In the Excel file they sit in a folded row group, opened with the `+` in the left margin.
 - A timeline for each day in the team's sheet layout: Session, Time Slot, Table 1 / Status 1 … Table N / Status N, **Polishing Schedule** and **Waiting List** (startups that are neither in a meeting nor in polishing, or `None (All in Sessions)`). The live board in the app also shows resting hosts.
-- Each host (organisation) keeps one colour everywhere, so you can follow a host across tables and sessions. Pink and yellow are reserved for polishing: pink is a startup's first polishing session, yellow its second.
+- Each host (organisation) keeps one colour everywhere, so you can follow a host across tables and sessions. Pitch polishing is shown in neutral slate grey with a dark outline (1st light grey, 2nd deeper grey), so it never looks like a partner. In the waiting list every startup also gets its own colour.
 - `NOT HERE` and `ONLY 27 NOV` style notes at the top are generated from the Days column.
 - Status chips: `Scheduled`, `Ongoing`, `Done`, `No-Show`. On the event day, statuses follow the clock automatically and the current slot is marked NOW. The board refreshes every 30 s.
 - The live status board lets you override any meeting, for example to mark a No-Show. A manual status always wins over the clock.
