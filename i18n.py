@@ -273,6 +273,13 @@ S = {
     "dir_empty_hint": ("The company directory is empty.", "회사 정보가 아직 비어 있어요."),
     "restored_local": ("Welcome back. Your last work in this browser was restored (it is saved here automatically).",
                        "다시 오셨네요. 이 브라우저에 자동 저장된 마지막 작업을 불러왔어요."),
+    "sheets_pick": ("This workbook has {n} tabs. Tabs to import", "이 파일엔 탭이 {n}개 있어요. 가져올 탭"),
+    "sheet_rows": ("{s} · {n} rows", "{s} · {n}행"),
+    "sheets_help": ("Pick one tab, or several tabs with the same columns to combine them (a Sheet column says where each row came from).",
+                    "탭 하나를 고르거나, 칸 구성이 같은 여러 탭을 골라 합칠 수 있어요 (어느 탭에서 왔는지 Sheet 칸에 남아요)."),
+    "f_loaded_tab": ("{f} has {n} tabs. Loaded '{s}', the one that fits best. Pick other tabs above the box if needed.",
+                     "{f}에 탭이 {n}개 있어서 가장 잘 맞는 '{s}' 탭을 불러왔어요. 다른 탭은 위에서 고를 수 있어요."),
+    "f_other_tab": ("The '{s}' tab is ready on the {side} side too.", "'{s}' 탭은 {side} 쪽에도 준비해 뒀어요."),
     "dir_go": ("Open Companies", "회사 정보 열기"),
     # team workspace
     "login_needed": ("Sign in with your work Google account to open the team workspace.",

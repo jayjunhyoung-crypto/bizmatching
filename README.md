@@ -22,6 +22,11 @@ The app has two pages in the top bar.
    * **Paste or upload** takes cells copied from Google Sheets or Excel, or a CSV/XLSX file, with Korean or
      English headers. Each column is matched to a field automatically and you can change the match. "Add new
      and update existing" matches companies by name, so pasting an updated sheet only fills in what changed.
+   * Workbooks with several tabs: the app reads every tab, skips cover or notes tabs, finds the header row even
+     when a title sits above it, and loads the tab that fits best (by tab name and column names). A **Tabs to
+     import** box lets you pick a different tab, or several tabs with the same columns to combine them. When a
+     second tab clearly holds the other list (for example "투자자 리스트"), it is prepared on that side too. The
+     participant uploads in Business matching work the same way.
    * Search looks in every field. **Download Excel** gives both lists as one workbook.
    * **Company profile** shows one company on a card, plus every meeting it has in business matching
      (the open event, and in the team workspace every saved event).

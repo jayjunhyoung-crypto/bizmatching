@@ -1604,6 +1604,117 @@ def read_upload(file) -> pd.DataFrame:
     raise ValueError("Could not read the file. Save it as UTF-8 CSV or .xlsx")
 
 
+# ---- workbooks with several tabs ----
+SHEET_HINTS = {
+    "startup": ("startup", "스타트업", "참가", "참여", "portfolio", "포트폴리오", "company list", "기업 목록", "기업목록"),
+    "partner": ("partner", "파트너", "investor", "투자", "vc", "corporate", "corp", "buyer", "바이어", "기관", "host",
+                "호스트", "lp"),
+}
+
+
+def _known_header(c: str) -> bool:
+    n = norm(c)
+    if not n:
+        return False
+    if n in ALIASES:
+        return True
+    return any(w in n for k in DIR_ALIASES for _, words in DIR_ALIASES[k] for w in words if len(w) > 2)
+
+
+def detect_header(raw: pd.DataFrame) -> pd.DataFrame:
+    """Sheets often start with a title or notes. Use the row that looks most like column names as the header."""
+    raw = raw.map(lambda v: "" if is_blank(v) else v)
+    best_i, best = 0, -1.0
+    for i in range(min(15, len(raw))):
+        cells = [str(v).strip() for v in raw.iloc[i] if str(v).strip()]
+        if len(cells) < 2:
+            continue
+        texty = sum(1 for c in cells if not re.fullmatch(r"[\d.,:/\- ]+", c))
+        score = texty + 3 * sum(_known_header(c) for c in cells)
+        if score > best:
+            best, best_i = score, i
+    hdr, seen, cols = [str(v).strip() for v in raw.iloc[best_i]], {}, []
+    for j, h in enumerate(hdr):
+        h = h or f"Column {j + 1}"
+        seen[h] = seen.get(h, 0) + 1
+        cols.append(h if seen[h] == 1 else f"{h} ({seen[h]})")
+    df = raw.iloc[best_i + 1:].copy()
+    df.columns = cols
+    df = df.loc[:, [not c.startswith("Column ") or any(str(v).strip() for v in df[c]) for c in df.columns]]
+    df = df[[any(str(v).strip() for v in r) for r in df.itertuples(index=False)]].reset_index(drop=True)
+    return df
+
+
+def read_book(file) -> dict:
+    """Every tab of a workbook (or the one table in a CSV) as {name: DataFrame}, empty tabs left out."""
+    name = file.name.lower()
+    if name.endswith((".xlsx", ".xls")):
+        sheets = pd.read_excel(file, sheet_name=None, header=None, dtype=object, keep_default_na=False,
+                               na_values=["", "#N/A", "nan", "NaN"])
+        out = {}
+        for sn, raw in sheets.items():
+            if raw.dropna(how="all").empty:
+                continue
+            df = detect_header(raw)
+            if len(df.columns) >= 2 and len(df):      # skip cover / notes tabs
+                out[str(sn)] = df
+        if not out:
+            raise ValueError("The workbook has no rows")
+        return out
+    return {"CSV": read_upload(file)}
+
+
+def sheet_score(name: str, df: pd.DataFrame, target: str) -> float:
+    kind = "partner" if target in ("host", "partner") else "startup"
+    other = "startup" if kind == "partner" else "partner"
+    n = norm(name)
+    sc = 6.0 if any(w in n for w in SHEET_HINTS[kind]) else 0.0
+    sc -= 4.0 if any(w in n for w in SHEET_HINTS[other]) else 0.0
+    taken = set()
+    for c in df.columns:
+        f = guess_dir(c, kind, taken)
+        if f not in ("(new)", "(ignore)"):
+            taken.add(f)
+    return sc + len(taken) + min(len(df), 500) / 1000
+
+
+def book_text(book: dict, names: list) -> str:
+    names = [n for n in names if n in book]
+    if not names:
+        return ""
+    if len(names) == 1:
+        return book[names[0]].to_csv(sep="\t", index=False)
+    parts = []
+    for n in names:
+        d = book[n].copy()
+        d.insert(0, "Sheet", n)
+        parts.append(d)
+    return pd.concat(parts, ignore_index=True).fillna("").to_csv(sep="\t", index=False)
+
+
+def load_book(tag: str, book: dict, target: str, paste_key: str) -> str:
+    """Remember the workbook, pick the tab that fits best and put it in the paste box. Returns the tab name."""
+    ss()[f"book_{tag}"] = book
+    best = max(book, key=lambda n: sheet_score(n, book[n], target))
+    ss()[f"sheets_{tag}"] = [best]
+    ss()[paste_key] = book_text(book, [best])
+    return best
+
+
+def cb_sheets(tag: str, paste_key: str):
+    ss()[paste_key] = book_text(ss().get(f"book_{tag}", {}), ss().get(f"sheets_{tag}") or [])
+
+
+def sheet_picker(tag: str, paste_key: str):
+    """When a workbook has several tabs: choose one or more (same columns are combined)."""
+    book = ss().get(f"book_{tag}")
+    if not book or len(book) < 2:
+        return
+    st.multiselect(T("sheets_pick", n=len(book)), list(book), key=f"sheets_{tag}", on_change=cb_sheets,
+                   args=(tag, paste_key), format_func=lambda n: T("sheet_rows", s=n, n=len(book[n])),
+                   help=T("sheets_help"))
+
+
 SPLIT_HOST = "Contact - Organisation (split)"
 GUESS = [  # (words in the header, field)
     (("present", "speaker", "pitcher", "founder"), "Presenter"),
@@ -1823,12 +1934,17 @@ def cb_upload(role: str):
     if not f:
         return
     try:
-        df = read_upload(f)
+        book = read_book(f)
     except Exception as e:  # noqa: BLE001
         ss().flash = ("error", T("f_read_fail", f=f.name, e=e))
         return
-    ss()[f"paste_{role}"] = df.to_csv(sep="\t", index=False)
-    ss().flash = ("info", T("f_loaded_file", f=f.name))
+    if len(book) == 1:
+        ss().pop(f"book_{role}", None)
+        ss()[f"paste_{role}"] = book_text(book, list(book))
+        ss().flash = ("info", T("f_loaded_file", f=f.name))
+    else:
+        best = load_book(role, book, role, f"paste_{role}")
+        ss().flash = ("info", T("f_loaded_tab", f=f.name, n=len(book), s=best))
 
 
 def cb_paste(role: str):
@@ -1868,6 +1984,7 @@ def paste_box(role: str):
     raw = s.get(f"paste_{role}", "")
     what = T("what_s" if role == "startup" else "what_h")
     with st.expander(T("paste_title", what=what), expanded=bool(raw)):
+        sheet_picker(role, f"paste_{role}")
         st.text_area(T("paste_label"),
                      key=f"paste_{role}", height=140,
                      placeholder="Startup\tPresenter\tSector\nFlexcuit\tMijin\tHardware")
@@ -2704,8 +2821,8 @@ DIR_HELP = {"Company (EN)": "dir_h_name_en", "Tags": "dir_h_tags", "Presenter": 
 DIR_ALIASES = {  # (field, words that identify a header), checked in order; Korean and English
     "startup": [
         ("CEO (EN)", ("대표자 영문", "대표 영문", "ceo (en)", "ceo en", "ceo english", "representative (en)")),
-        ("Company (KR)", ("국문", "회사명 (국문)", "기업명", "회사명", "한글")),
         ("Company (EN)", ("영문", "english", "company (en)", "company name", "startup name", "startup", "company", "name")),
+        ("Company (KR)", ("국문", "회사명 (국문)", "기업명", "회사명", "한글")),
         ("CEO", ("대표", "ceo", "founder", "representative")),
         ("Email", ("mail", "메일")),
         ("Phone", ("phone", "전화", "연락처", "mobile", "휴대")),
@@ -2738,7 +2855,8 @@ DIR_ALIASES = {  # (field, words that identify a header), checked in order; Kore
 
 
 def dir_cols(kind: str) -> list[str]:
-    return DIR_FIELDS[kind] + [c for c in ss().dir_extra.get(kind, []) if c not in DIR_FIELDS[kind]]
+    extra = (ss().get("dir_extra") or {}).get(kind, [])
+    return DIR_FIELDS[kind] + [c for c in extra if c not in DIR_FIELDS[kind]]
 
 
 def dir_label(col: str) -> str:
@@ -2842,7 +2960,7 @@ def guess_dir(header: str, kind: str, taken: set) -> str:
     for f, words in DIR_ALIASES[kind]:
         if f not in taken and any(w in n for w in words):
             return f
-    if n in {"", "no", "no.", "#", "번호", "순번", "순서", "index"} or n.startswith(("unnamed", "column ")):
+    if n in {"", "no", "no.", "#", "번호", "순번", "순서", "index", "sheet"} or n.startswith(("unnamed", "column ")):
         return "(ignore)"
     return "(new)"     # keep everything: a column we do not know becomes its own field
 
@@ -2852,9 +2970,23 @@ def cb_dir_upload(kind: str):
     if not f:
         return
     try:
-        ss()[f"dir_paste_{kind}"] = read_upload(f).to_csv(sep="\t", index=False)
+        book = read_book(f)
     except Exception as e:  # noqa: BLE001
         ss().flash = ("error", T("f_read_fail", f=f.name, e=e))
+        return
+    if len(book) == 1:
+        ss().pop(f"book_dir_{kind}", None)
+        ss()[f"dir_paste_{kind}"] = book_text(book, list(book))
+        return
+    best = load_book(f"dir_{kind}", book, kind, f"dir_paste_{kind}")
+    msg = T("f_loaded_tab", f=f.name, n=len(book), s=best)
+    # a second tab that clearly holds the other list is prepared on the other side too
+    other = "partner" if kind == "startup" else "startup"
+    cands = [n for n in book if n != best and any(w in norm(n) for w in SHEET_HINTS[other])]
+    if cands and not ss().get(f"dir_paste_{other}"):
+        o = load_book(f"dir_{other}", book, other, f"dir_paste_{other}")
+        msg += " " + T("f_other_tab", s=o, side=T("dir_" + other + "s"))
+    ss().flash = ("info", msg)
 
 
 def cb_dir_import(kind: str):
@@ -2906,6 +3038,7 @@ def dir_import_box(kind: str):
     s = ss()
     st.file_uploader(T("import_file"), type=["csv", "xlsx", "xls"], key=f"dir_up_{kind}",
                      on_change=cb_dir_upload, args=(kind,))
+    sheet_picker(f"dir_{kind}", f"dir_paste_{kind}")
     st.text_area(T("dir_paste"), key=f"dir_paste_{kind}", height=110,
                  placeholder="회사명\t영문명\t대표자\t이메일\n플렉스컷\tFlexcuit\t김민지\tmj@flexcuit.com")
     df = parse_paste(s.get(f"dir_paste_{kind}", ""))
@@ -3155,7 +3288,7 @@ def companies_page():
     cfg = {"_id": None}
     for c in dir_cols(kind):
         if kind == "partner" and c == "Type":
-            cfg[c] = st.column_config.SelectboxColumn(dir_label(c), options=HOST_TYPES)
+            cfg[c] = st.column_config.SelectboxColumn(dir_label(c), options=[""] + list(HOST_TYPES))
         elif c in ("One-liner", "Notes"):
             cfg[c] = st.column_config.TextColumn(dir_label(c), width="large")
         else:
