@@ -138,6 +138,12 @@ td.free{min-width:150px;max-width:240px;vertical-align:middle}
 .tag.ghost{border-style:solid;background:var(--panel)}
 .stag{display:inline-block;border-radius:5px;padding:0 6px;background:hsl(var(--sh,220) var(--ss,70%) var(--sl,90%));color:hsl(var(--sh,220) 40% 24%);
  box-shadow:inset 0 0 0 1px hsl(var(--sh,220) 40% 74%);font-weight:600;font-size:11px;line-height:1.5;cursor:pointer;margin:1px 0;transition:background .12s,box-shadow .12s}
+.stag sup{font-size:9px;font-weight:800;margin-left:3px;opacity:.75;vertical-align:1px}
+.chip .sub{position:absolute;top:-7px;right:-6px;background:var(--cob);color:#fff;font-size:9.5px;font-weight:800;border-radius:99px;padding:1px 6px;box-shadow:0 1px 4px rgba(0,0,0,.2)}
+.rcard .tabs{display:flex;gap:4px;padding:8px 14px 0}
+.rcard .tabs button{border:1px solid var(--line);background:var(--panel);border-radius:99px;padding:4px 11px;cursor:pointer;font-weight:700;font-size:12px}
+.rcard .tabs button.on{background:var(--cob);border-color:var(--cob);color:#fff}
+.rcard .lead{padding:8px 14px 2px;color:var(--mut);font-size:12px}
 .stag.fit{background:rgba(20,164,77,.18);color:var(--ink);box-shadow:0 0 0 2px var(--green)}
 .stag.clash{background:rgba(217,45,32,.14);color:var(--ink);box-shadow:0 0 0 2px var(--red)}
 .menu .pick{max-height:300px;overflow:auto;display:grid}
@@ -228,7 +234,14 @@ td.free{min-width:150px;max-width:240px;vertical-align:middle}
       "{0} is not a match for {1}": "{0}은(는) {1}의 제외 분야예요",
       "All tables are taken at {0}": "{0}에는 빈 테이블이 없어요",
       "New meeting · {0}": "새 미팅 · {0}", "Who meets {0}?": "누가 {0}와(과) 만날까요?",
-      "{0} today": "오늘 {0}개", "Partner card": "파트너 카드", "Recommended": "추천", "Not met yet": "아직 안 만난 스타트업",
+      "{0} today": "오늘 {0}개", "Has not met: {0}": "아직 안 만난 파트너: {0}", "No one new for the partners here": "여기 파트너들을 아직 안 만난 스타트업이 없어요",
+      "Who steps in?": "누가 대신 들어갈까요?", "{0} cancelled": "{0} 취소", "Put in": "넣기", "never met": "처음 만남",
+      "pull forward from {0}": "{0} 미팅 당겨오기", "Startups free now who have not met {0}. Best fit first.": "지금 비어 있고 {0}을(를) 아직 안 만난 스타트업이에요. 잘 맞는 순서예요.",
+      "Partners free now who have not met {0}. Best fit first.": "지금 비어 있고 {0}을(를) 아직 안 만난 파트너예요. 잘 맞는 순서예요.",
+      "Nobody free right now has not met {0}.": "지금 비어 있으면서 {0}을(를) 안 만난 스타트업이 없어요.",
+      "No free partner right now has not met {0}.": "지금 비어 있으면서 {0}을(를) 안 만난 파트너가 없어요.",
+      "The cancelled meeting moves to Unplaced as a no-show, so you can rebook it later.": "취소된 미팅은 노쇼로 표시돼서 미배정 칸으로 가요. 나중에 다시 잡을 수 있어요.",
+      "{0} steps in": "{0} 대신 들어갔어요", "Cancelled? Find who steps in": "취소됐나요? 대신 들어갈 곳 찾기", "Partner card": "파트너 카드", "Recommended": "추천", "Not met yet": "아직 안 만난 스타트업",
       "Already meeting": "이미 잡힌 미팅", "Add": "추가", "No free time today": "오늘 겹치는 빈 시간 없음",
       "Only meets {0}": "{0}만 만나요", "Prefers {0}": "선호 {0}", "fits {0}": "{0} 맞음", "priority": "우선",
       "{0} meetings so far": "지금까지 {0}개", "few meetings": "미팅 적음", "{0} free slots together": "같이 빈 시간 {0}개", "{0} free slot together": "같이 빈 시간 {0}개",
@@ -526,7 +539,8 @@ td.free{min-width:150px;max-width:240px;vertical-align:middle}
     const who = H_.contact ? "(" + esc(H_.contact) + " - " + esc(m.host) + ")" : "(" + esc(m.host) + ")";
     const title = bad ? ' title="' + esc(meetingClash(st, m).join("\n")) + '"' : "";
     return '<div class="' + cls + '" data-drag="m" data-id="' + esc(m.id) + '" style="background:#' + H_.color + ";color:#" + H_.text + '"' + title + ">"
-      + (m.lock ? PIN : "") + "<b>" + star + esc(m.startup) + '</b><span class="h">' + who + '</span><span class="st ' + s + '">' + stName(s) + "</span></div>";
+      + (m.lock ? PIN : "") + (s === "No-Show" && m.k != null ? '<span class="sub" title="' + esc(tr("Cancelled? Find who steps in")) + '">↺ ' + startupSubs(st, m).length + "</span>" : "")
+      + "<b>" + star + esc(m.startup) + '</b><span class="h">' + who + '</span><span class="st ' + s + '">' + stName(s) + "</span></div>";
   }
   function polHTML(p, clashSet, hit) {
     const n = (D.polPrior[p.startup] || 0) + 1;
@@ -577,8 +591,10 @@ td.free{min-width:150px;max-width:240px;vertical-align:middle}
         return '<span class="tag' + (F && F.has(h) ? " hit" : "") + '" data-drag="h" data-id="' + esc(h) + '" data-k="' + r.k + '" style="--hc:#' + H_.color + '" title="' + esc(H_.contact ? H_.contact + " · " + h : h) + '"><i></i>' + esc(h) + "</span>";
       }).join("") : '<span style="color:var(--mut);font-size:11.5px">' + tr("All busy") + "</span>") + "</div></td>";
       if (D.polOn) row += '<td><div class="cell pc" data-pcell="' + r.k + '">' + (polAt[r.k] || []).map((p) => polHTML(p, clashSet, F && F.has(p.startup))).join("") + "</div></td>";
-      const waiting = Object.keys(D.startups).filter((s) => D.startups[s].avail[r.k] && !b.s.has(s));
-      row += '<td class="wait">' + (waiting.length ? waiting.map((s) => '<span class="stag' + (F && F.has(s) ? " hit" : "") + '" data-stag="' + esc(s) + '" data-k="' + r.k + '" style="--sh:' + D.startups[s].tone.h + ";--sl:" + D.startups[s].tone.l + "%;--ss:" + D.startups[s].tone.s + '%">' + (D.startups[s].priority ? "★ " : "") + esc(s) + "</span>").join(" ") : "<i>" + tr("None (all in sessions)") + "</i>") + "</td></tr>";
+      const waiting = waitingAt(st, r.k);
+      row += '<td class="wait">' + (waiting.length ? waiting.map((w) => { const s = w.s;
+        return '<span class="stag' + (F && F.has(s) ? " hit" : "") + '" data-stag="' + esc(s) + '" data-k="' + r.k + '" title="' + esc(tr("Has not met: {0}", w.hosts.join(", "))) + '" style="--sh:' + D.startups[s].tone.h + ";--sl:" + D.startups[s].tone.l + "%;--ss:" + D.startups[s].tone.s + '%">' + (D.startups[s].priority ? "★ " : "") + esc(s) + "<sup>" + w.hosts.length + "</sup></span>"; }).join(" ")
+        : "<i>" + tr(Object.keys(D.startups).some((s) => D.startups[s].avail[r.k] && !b.s.has(s)) ? "No one new for the partners here" : "None (all in sessions)") + "</i>") + "</td></tr>";
       body += row;
     });
     const notes = D.notes.length ? '<button class="btn' + (showNotes ? " on" : "") + '" data-act="notes">' + tr(showNotes ? "Hide attendance notes" : "Show attendance notes") + "</button>" : "";
@@ -786,6 +802,7 @@ td.free{min-width:150px;max-width:240px;vertical-align:middle}
       h += '<div class="t">' + esc(item.startup) + "<small>" + esc(tr("with {0}", item.host)) + (item.k != null ? " · " + fmt(slotOf(item.k).start) + " · " + esc((D.names && D.names.table) || "Table") + " " + item.table : " · " + tr("unplaced")) + "</small></div>";
       why.forEach((w) => (h += '<div class="why">' + esc(w) + "</div>"));
       if (item.k != null) {
+        h += '<button data-mact="subs" style="font-weight:700;color:var(--cob)">↺ ' + tr("Cancelled? Find who steps in") + "</button>";
         [["Auto", "#cbd2e0"], ["Scheduled", "#9ca3af"], ["Ongoing", "#1240e0"], ["Done", "#16a34a"], ["No-Show", "#d92d20"]].forEach((x) => {
           h += '<button data-st="' + x[0] + '"' + (cur === x[0] ? ' class="cur"' : "") + '><span class="dot" style="background:' + x[1] + '"></span>' + (x[0] === "Auto" ? tr("Auto (follows the clock)") : stName(x[0])) + "</button>";
         });
@@ -813,6 +830,118 @@ td.free{min-width:150px;max-width:240px;vertical-align:middle}
     if (r.bottom + 6 + mh > window.innerHeight) top = Math.max(6, r.top - mh - 6 + window.scrollY);
     m.style.left = left + "px"; m.style.top = top + "px";
   }
+  // ---------------- cancellations: who steps in right now ----------------
+  function present(k) {           // partners in the room at slot k: meeting now, or free and available
+    return Object.keys(D.hosts).filter((h) => D.hosts[h].avail[k]);
+  }
+  function metOrBooked(st, s, h) { return !!pairAt(st, s, h); }
+  function waitingAt(st, k) {
+    const b = busy(st, k), hs = present(k);
+    const out = [];
+    Object.keys(D.startups).forEach((s) => {
+      if (!D.startups[s].avail[k] || b.s.has(s)) return;
+      const fresh = hs.filter((h) => !(D.startups[s].no || {})[h] && !metOrBooked(st, s, h));
+      if (fresh.length) out.push({ s: s, hosts: fresh });
+    });
+    return out.sort((a, c) => (D.startups[c.s].priority ? 1 : 0) - (D.startups[a.s].priority ? 1 : 0) || c.hosts.length - a.hosts.length || a.s.localeCompare(c.s));
+  }
+  function counts(st) { const c = {}; st.meetings.forEach((m) => { c[m.startup] = (c[m.startup] || 0) + 1; c[m.host] = (c[m.host] || 0) + 1; }); return c; }
+  // startups who can take the place of m.startup with m.host, best first
+  function startupSubs(st, m) {
+    const k = m.k, h = m.host, b = busy(st, k), cnt = counts(st), out = [];
+    Object.keys(D.startups).forEach((c) => {
+      if (c === m.startup || !D.startups[c].avail[k] || (D.startups[c].no || {})[h]) return;
+      const same = st.meetings.find((x) => x.startup === c && x.host === h);
+      if (same && (same.k <= k || same.lock)) return;                 // already met, or pinned elsewhere
+      if (b.s.has(c)) return;                                        // busy right now
+      if (!same && D.other && D.other[c + "|" + h]) return;          // met or booked on another day
+      const total = (cnt[c] || 0) + (D.startups[c].otherN || 0);
+      out.push({ s: c, pull: same || null, total: total, pref: !!(D.startups[c].pref || {})[h], pri: !!D.startups[c].priority });
+    });
+    const avg = out.length ? out.reduce((a, x) => a + x.total, 0) / out.length : 0;
+    out.forEach((x) => { x.few = x.total < avg - 0.5;
+      x.score = (x.pull ? 1 : 3) + (x.pref ? 4 : 0) + (x.pri ? 2.5 : 0) + Math.max(-2, Math.min(2, (avg - x.total) / Math.max(1, avg) * 3)); });
+    return out.sort((a, c) => c.score - a.score || a.s.localeCompare(c.s));
+  }
+  // partners who can take the place of m.host with m.startup, best first
+  function partnerSubs(st, m) {
+    const k = m.k, s0 = m.startup, b = busy(st, k), cnt = counts(st), out = [];
+    Object.keys(D.hosts).forEach((g) => {
+      if (g === m.host || !D.hosts[g].avail[k] || b.h.has(g) || (D.startups[s0].no || {})[g]) return;
+      const same = st.meetings.find((x) => x.startup === s0 && x.host === g);
+      if (same && (same.k <= k || same.lock)) return;
+      if (!same && D.other && D.other[s0 + "|" + g]) return;
+      if (D.hosts[g].maxM != null && (cnt[g] || 0) >= D.hosts[g].maxM && !same) return;
+      out.push({ h: g, pull: same || null, n: cnt[g] || 0, pref: !!(D.startups[s0].pref || {})[g] });
+    });
+    out.forEach((x) => (x.score = (x.pull ? 1 : 3) + (x.pref ? 4 : 0) - x.n * 0.3));
+    return out.sort((a, c) => c.score - a.score || a.h.localeCompare(c.h));
+  }
+  function swapIn(st, m, who, side) {
+    // m did not happen: it goes to Unplaced as a no-show (so it can be rebooked) and the substitute takes the cell
+    const nx = { meetings: clone(st.meetings).filter((x) => x.id !== m.id), parked: clone(st.parked), polish: clone(st.polish), statuses: Object.assign({}, st.statuses) };
+    const s = side === "s" ? who.s : m.startup, h = side === "s" ? m.host : who.h, id = s + "|" + h;
+    nx.parked.push(Object.assign({}, m, { k: null, table: 0, lock: false }));
+    nx.statuses[m.id] = "No-Show";
+    nx.meetings = nx.meetings.filter((x) => x.id !== id);              // pulled forward from later today
+    nx.parked = nx.parked.filter((x) => x.id !== id);
+    nx.meetings.push({ id: id, startup: s, host: h, k: m.k, table: m.table, lock: false });
+    delete nx.statuses[id];
+    return { st: nx, id: id };
+  }
+  function subTags(x, side, m) {
+    const t = [];
+    if (x.pref) t.push('<span class="g">' + esc(side === "s" ? tr("fits {0}", D.hosts[m.host].prefer || D.hosts[m.host].only || "") : tr("preferred")) + "</span>");
+    if (x.pri) t.push('<span class="a">★ ' + tr("priority") + "</span>");
+    if (x.few) t.push('<span class="g">' + tr("few meetings") + "</span>");
+    if (x.pull) t.push('<span class="a">' + tr("pull forward from {0}", fmt(slotOf(x.pull.k).start)) + "</span>");
+    else t.push('<span class="g">' + tr("never met") + "</span>");
+    t.push("<span>" + (side === "s" ? tr("{0} meetings so far", x.total) : tr("{0} today", x.n)) + "</span>");
+    if (side === "s" && D.startups[x.s].tags) t.push("<span>" + esc(D.startups[x.s].tags) + "</span>");
+    return t.join("");
+  }
+  function openSubs(m, el, side) {
+    closeMenu();
+    side = side || "s";
+    const subsS = startupSubs(S, m), subsH = partnerSubs(S, m);
+    menuFor = { type: "subs", id: m.id, side: side };
+    const box = document.createElement("div"); box.className = "menu pcard rcard"; box.id = "menu";
+    const H_ = D.hosts[m.host] || {};
+    let x = '<div class="ph"><i style="background:#' + (H_.color || "ccc") + '"></i><div><b>' + tr("Who steps in?") + "</b><small>" + esc(m.startup) + " × " + esc(m.host)
+      + " · " + fmt(slotOf(m.k).start) + " · " + esc((D.names && D.names.table) || "Table") + " " + m.table + '</small></div><button class="x" data-pact="close">×</button></div>';
+    x += '<div class="tabs"><button data-side="s" class="' + (side === "s" ? "on" : "") + '">' + tr("{0} cancelled", esc(m.startup)) + " · " + subsS.length + '</button>'
+      + '<button data-side="h" class="' + (side === "h" ? "on" : "") + '">' + tr("{0} cancelled", esc(m.host)) + " · " + subsH.length + "</button></div>";
+    if (side === "s") {
+      x += '<div class="lead">' + tr("Startups free now who have not met {0}. Best fit first.", esc(m.host)) + "</div>";
+      x += '<div class="list">' + (subsS.length ? subsS.slice(0, 12).map((r, i) => '<div class="row"><div style="min-width:0"><div class="nm">' + (i === 0 ? "👉 " : "") + (r.pri ? "★ " : "") + esc(r.s)
+        + '</div><div class="why">' + subTags(r, "s", m) + '</div></div><button class="go" data-sub="' + esc(r.s) + '">' + tr("Put in") + "</button></div>").join("")
+        : '<div class="empty">' + tr("Nobody free right now has not met {0}.", esc(m.host)) + "</div>") + "</div>";
+    } else {
+      x += '<div class="lead">' + tr("Partners free now who have not met {0}. Best fit first.", esc(m.startup)) + "</div>";
+      x += '<div class="list">' + (subsH.length ? subsH.slice(0, 12).map((r, i) => { const G = D.hosts[r.h];
+        return '<div class="row"><span class="hc" style="width:10px;height:10px;border-radius:3px;background:#' + G.color + ';flex:none"></span><div style="min-width:0"><div class="nm">' + (i === 0 ? "👉 " : "") + esc(r.h)
+          + (G.contact ? ' <small style="color:var(--mut);font-weight:500">' + esc(G.contact) + "</small>" : "") + '</div><div class="why">' + subTags(r, "h", m) + '</div></div><button class="go" data-sub="' + esc(r.h) + '">' + tr("Put in") + "</button></div>"; }).join("")
+        : '<div class="empty">' + tr("No free partner right now has not met {0}.", esc(m.startup)) + "</div>") + "</div>";
+    }
+    x += '<div class="lead" style="padding-bottom:10px">' + tr("The cancelled meeting moves to Unplaced as a no-show, so you can rebook it later.") + "</div>";
+    box.innerHTML = x;
+    placeMenu(box, el);
+  }
+  function subsClick(b) {
+    if (b.dataset.pact === "close") { closeMenu(); return; }
+    const m = S.meetings.find((x) => x.id === menuFor.id); if (!m) { closeMenu(); return; }
+    const anchor = document.querySelector('[data-id="' + CSS.escape(m.id) + '"]') || document.getElementById("q");
+    if (b.dataset.side) { openSubs(m, anchor, b.dataset.side); return; }
+    const who = b.dataset.sub; if (!who) return;
+    const side = menuFor.side;
+    const list = side === "s" ? startupSubs(S, m) : partnerSubs(S, m);
+    const pick = list.find((r) => (side === "s" ? r.s : r.h) === who); if (!pick) return;
+    const res = swapIn(S, m, pick, side);
+    closeMenu();
+    commit(res.st, { snap: [res.id] });
+    toast(tr("{0} steps in", who) + " · " + fmt(slotOf(m.k).start));
+  }
+
   // ---------------- partner card: who they have met, who is left, and who to add ----------------
   function spotFor(st, s, h) {
     // the earliest slot today where both are free and a table is open; next to the partner's other meetings first
@@ -927,6 +1056,8 @@ td.free{min-width:150px;max-width:240px;vertical-align:middle}
   function menuClick(b) {
     if (!menuFor) return;
     if (menuFor.type === "partner") { partnerClick(b); return; }
+    if (menuFor.type === "subs") { subsClick(b); return; }
+    if (b.dataset.mact === "subs") { const m = S.meetings.find((x) => x.id === menuFor.id); if (m) openSubs(m, document.querySelector('[data-id="' + CSS.escape(m.id) + '"]'), "s"); return; }
     if (menuFor.type === "pick") {
       const pk = menuFor.pick, s = b.dataset.pick; if (!s) return;
       closeMenu();
@@ -937,7 +1068,12 @@ td.free{min-width:150px;max-width:240px;vertical-align:middle}
     if (b.dataset.mact === "partner") { const hh = menuFor.id.split("|")[1], anchor = document.querySelector('[data-id="' + CSS.escape(menuFor.id) + '"]'); openPartner(hh, anchor); return; }
     if (b.dataset.mact === "focus") { const f = menuFor.id.split("|")[0]; closeMenu(); setFocus(f); return; }
     const id = menuFor.id, next = { meetings: clone(S.meetings), parked: clone(S.parked), polish: clone(S.polish), statuses: Object.assign({}, S.statuses) };
-    if (b.dataset.st) { if (b.dataset.st === "Auto") delete next.statuses[id]; else next.statuses[id] = b.dataset.st; closeMenu(); commit(next); return; }
+    if (b.dataset.st) {
+      if (b.dataset.st === "Auto") delete next.statuses[id]; else next.statuses[id] = b.dataset.st;
+      closeMenu(); commit(next);
+      if (b.dataset.st === "No-Show") { const m = S.meetings.find((x) => x.id === id); if (m) openSubs(m, document.querySelector('[data-id="' + CSS.escape(id) + '"]'), "s"); }
+      return;
+    }
     const a = b.dataset.mact;
     if (a === "pin") { const m = next.meetings.find((x) => x.id === id); if (m) m.lock = !m.lock; }
     if (a === "park") { const m = next.meetings.find((x) => x.id === id); if (m) { next.meetings = next.meetings.filter((x) => x.id !== id); next.parked.push(Object.assign({}, m, { k: null, table: 0, lock: false })); } }
@@ -1034,7 +1170,8 @@ td.free{min-width:150px;max-width:240px;vertical-align:middle}
     render();
   });
   // test hook: same logic as a pointer drop
-  window.__bm = { focus: (q) => setFocus(q), host: (h, target) => { const p = simulateHost(h, target); return p && { kind: p.kind, text: p.text, pick: p.pick && p.pick.cands.map((c) => c.name) }; },
+  window.__bm = { subs: (id) => { const m = S.meetings.find((x) => x.id === id); return m ? [startupSubs(S, m).map((r) => r.s), partnerSubs(S, m).map((r) => r.h)] : null; },
+    focus: (q) => setFocus(q), host: (h, target) => { const p = simulateHost(h, target); return p && { kind: p.kind, text: p.text, pick: p.pick && p.pick.cands.map((c) => c.name) }; },
     hist: () => hist.length, version: () => version, state: () => S,
     drop: (type, id, target) => { const p = simulate({ type: type, id: id }, target); if (p && p.blocked) return { kind: p.kind, text: p.text, blocked: true }; if (p) commit(p.st, { snap: [p.focus], bump: p.moved.map((x) => x.id) }); return p && { kind: p.kind, text: p.text }; } };
   ST.ready();
