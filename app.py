@@ -43,6 +43,7 @@ from ortools.sat.python import cp_model
 # Constants
 # --------------------------------------------------------------------------------------
 APP_TITLE = "BizMatch"
+LOCAL = components.declare_component("bizmatch_local", path=str(Path(__file__).parent / "local"))
 SUMMARY = components.declare_component("bizmatch_summary", path=str(Path(__file__).parent / "summary"))
 BOARD = components.declare_component("bizmatch_board", path=str(Path(__file__).parent / "board"))
 STATUSES = ["Scheduled", "Ongoing", "Done", "No-Show"]
@@ -2531,14 +2532,17 @@ def generate_tab():
         if s.packing_mode == "front" and peak > cfg.tables:
             st.warning(T("warn_front", peak=peak, tables=cfg.tables))
     with b:
-        st.slider(T("pw"), 1, 5, 3, key="pw", help=T("pw_help"))
-        st.slider(T("tl"), 5, 120, 20, key="tl")
-        st.checkbox(T("hf"), True, key="hf")
-        st.checkbox(T("pe"), True, key="pe")
+        for k_, v_ in (("pw", 3), ("tl", 20), ("hf", True), ("pe", True)):
+            ss().setdefault(k_, v_)
+        st.slider(T("pw"), 1, 5, key="pw", help=T("pw_help"))
+        st.slider(T("tl"), 5, 120, key="tl")
+        st.checkbox(T("hf"), key="hf")
+        st.checkbox(T("pe"), key="pe")
 
     keep_live = False
     if s.result and s.result.get("meetings"):
-        keep_live = st.checkbox(T("keep_live"), value=True, key="keep_live")
+        ss().setdefault("keep_live", True)
+        keep_live = st.checkbox(T("keep_live"), key="keep_live")
 
     st.caption(T("always"))
     go = st.button(T("generate"), type="primary",
@@ -2838,7 +2842,9 @@ def guess_dir(header: str, kind: str, taken: set) -> str:
     for f, words in DIR_ALIASES[kind]:
         if f not in taken and any(w in n for w in words):
             return f
-    return "(ignore)"
+    if n in {"", "no", "no.", "#", "번호", "순번", "순서", "index"} or n.startswith(("unnamed", "column ")):
+        return "(ignore)"
+    return "(new)"     # keep everything: a column we do not know becomes its own field
 
 
 def cb_dir_upload(kind: str):
@@ -3124,7 +3130,8 @@ def companies_page():
     st.subheader(T("dir_title"))
     st.caption(T("dir_cap"))
     counts = {k: len(s.dir_df[k]) for k in DIR_FIELDS}
-    kind = st.segmented_control("kind", list(DIR_FIELDS), key="dir_kind", default="startup", on_change=dir_commit,
+    s.setdefault("dir_kind", "startup")
+    kind = st.segmented_control("kind", list(DIR_FIELDS), key="dir_kind", on_change=dir_commit,
                                 format_func=lambda k: f"{T('dir_' + k + 's')} {counts[k]}",
                                 label_visibility="collapsed") or "startup"
     t1, t2, t3, t4 = st.columns([3, 1, 1, 1], vertical_alignment="bottom")
@@ -3168,8 +3175,77 @@ def companies_page():
     dir_autosave()
 
 
+KEEP_KEYS = {"tz", "tl", "tables", "t_start", "t_end", "t_pol_s", "t_pol_e", "t_lunch_s", "t_lunch_e", "sessions_txt",
+             "pw", "pol_on", "pol_days", "pol_cap", "pe", "packing_mode", "lunch_on", "keep_live", "interval", "hf",
+             "ev_name", "dir_kind", "day_sel", "buffer_s", "buffer_m"}
+KEEP_PREFIXES = ("lbl_", "nm_", "dir_q_", "pmode_", "dir_mode_", "paste_", "dir_paste_", "map_", "dmap_", "dir_pick_")
+
+
+def keep_widget_state() -> None:
+    """Streamlit forgets the value of a widget whose page is not on screen. Re-saving the values at the start of
+    every run keeps the event settings when you hop between Companies and Business matching."""
+    s = ss()
+    for k in list(s.keys()):
+        if isinstance(k, str) and (k in KEEP_KEYS or k.startswith(KEEP_PREFIXES)):
+            try:
+                s[k] = s[k]
+            except Exception:  # noqa: BLE001
+                pass
+
+
+def page_switched() -> None:
+    """Tables are edited on top of a starting copy. When you leave a page, make the edits the new start,
+    so nothing typed in a table is lost when you come back."""
+    s = ss()
+    if "s_df" in s:
+        s.days_base, s.s_base, s.h_base = s.days_df, s.s_df, s.h_df
+        s.ver = s.get("ver", 0) + 1
+    if "dir_df" in s:
+        dir_commit()
+
+
+def local_backup_restore() -> None:
+    """Personal mode: bring back the last saved copy from this browser, once per visit."""
+    if store() or ss().get("_restored"):
+        return
+    val = ss().get("bm_local")
+    if not isinstance(val, dict):
+        return
+    ss()._restored = True
+    raw = val.get("loaded") or ""
+    if not raw:
+        return
+    try:
+        data = json.loads(raw)
+        load_project(data)
+        init_dir()
+        for k, doc in (data.get("directory") or {}).items():
+            if k in DIR_FIELDS:
+                dir_load_doc(k, doc)
+        ss().flash = ("info", T("restored_local"))
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def local_backup_save() -> None:
+    """Personal mode: keep a copy of the event and the directory in this browser after every change."""
+    if store():
+        return
+    save = None
+    if ss().get("_restored"):
+        try:
+            doc = project_json()
+            h = hashlib.sha1(doc.encode()).hexdigest()
+            if h != ss().get("_local_saved"):
+                save, ss()._local_saved = doc, h
+        except Exception:  # noqa: BLE001
+            save = None
+    LOCAL(key="bm_local", data={"key": "bizmatch-v1", "save": save}, default=None)
+
+
 def main():
     st.set_page_config(page_title=APP_TITLE, page_icon="🗓️", layout="wide")
+    keep_widget_state()
     if "lang" not in ss():
         q = st.query_params.get("lang", "en")
         ss().lang = q if q in LANGS else "en"
@@ -3188,7 +3264,13 @@ def main():
         gate()
         return
     init_dir()
+    local_backup_restore()
+    here = getattr(nav, "url_path", "") or "home"
+    if ss().get("_page") not in (None, here):
+        page_switched()
+    ss()._page = here
     nav.run()
+    local_backup_save()
 
 
 def matching_page():

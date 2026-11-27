@@ -271,6 +271,8 @@ S = {
     "dir_added_to_event": ("{n} added to the event.", "{n}곳을 행사에 추가했어요."),
     "dir_refreshed": ("{n} updated from the directory.", "{n}곳을 회사 정보 기준으로 갱신했어요."),
     "dir_empty_hint": ("The company directory is empty.", "회사 정보가 아직 비어 있어요."),
+    "restored_local": ("Welcome back. Your last work in this browser was restored (it is saved here automatically).",
+                       "다시 오셨네요. 이 브라우저에 자동 저장된 마지막 작업을 불러왔어요."),
     "dir_go": ("Open Companies", "회사 정보 열기"),
     # team workspace
     "login_needed": ("Sign in with your work Google account to open the team workspace.",

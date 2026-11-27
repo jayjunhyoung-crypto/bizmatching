@@ -30,7 +30,9 @@ The app has two pages in the top bar.
    domain rules), and **Refresh details** updates the ones already in the event after you edit the directory.
 
 In the team workspace the directory is shared and saved automatically (table `bm_directory`). In personal
-mode it lives in the browser tab and is kept inside **Save project** files.
+mode the app keeps a copy of the event and the directory in your browser after every change, so a refresh or a
+closed tab loses nothing (it is per browser, so use **Save project** or the team workspace to move work to
+another computer). Paste imports never drop a column: a header the app does not know becomes a new field.
 
 ## What it does
 
