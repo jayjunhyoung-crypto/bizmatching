@@ -126,8 +126,8 @@ td.free{min-width:150px;max-width:240px;vertical-align:middle}
 .tag small{font-weight:500;color:var(--mut)}
 .tag.lift{opacity:.3}
 .tag.ghost{border-style:solid;background:var(--panel)}
-.stag{display:inline-block;border-radius:5px;padding:0 6px;background:hsl(var(--sh,220) 70% 91%);color:hsl(var(--sh,220) 35% 28%);
- box-shadow:inset 0 0 0 1px hsl(var(--sh,220) 45% 80%);font-weight:600;font-size:11px;line-height:1.5;cursor:pointer;margin:1px 0;transition:background .12s,box-shadow .12s}
+.stag{display:inline-block;border-radius:5px;padding:0 6px;background:hsl(var(--sh,220) var(--ss,70%) var(--sl,90%));color:hsl(var(--sh,220) 40% 24%);
+ box-shadow:inset 0 0 0 1px hsl(var(--sh,220) 40% 74%);font-weight:600;font-size:11px;line-height:1.5;cursor:pointer;margin:1px 0;transition:background .12s,box-shadow .12s}
 .stag.fit{background:rgba(20,164,77,.18);color:var(--ink);box-shadow:0 0 0 2px var(--green)}
 .stag.clash{background:rgba(217,45,32,.14);color:var(--ink);box-shadow:0 0 0 2px var(--red)}
 .menu .pick{max-height:300px;overflow:auto;display:grid}
@@ -213,6 +213,20 @@ td.free{min-width:150px;max-width:240px;vertical-align:middle}
     if (exact.length) return new Set(exact);
     return new Set(all.filter((n) => norm(n).indexOf(q) >= 0 || norm((D.hosts[n] || {}).contact).indexOf(q) >= 0));
   }
+  // Evenly spaced hues from green through blue to violet, skipping the pinks, reds and yellows used for
+  // polishing. Neighbouring hues get one of three lightness levels, and the order is shuffled so startups next to
+  // each other in the list look clearly different.
+  function startupTones(n) {
+    const lo = 88, hi = 282, out = [];
+    if (!n) return out;
+    let step = Math.max(1, Math.round(n * 0.382)); while (gcd(step, n) !== 1) step++;
+    for (let i = 0; i < n; i++) {
+      const j = (i * step) % n;
+      out.push({ h: Math.round(lo + (hi - lo) * (n === 1 ? 0.5 : j / (n - 1))), l: [91, 83, 76][j % 3], s: [78, 62, 52][j % 3] });
+    }
+    return out;
+  }
+  function gcd(a, b) { return b ? gcd(b, a % b) : a; }
   function pairAt(st, s, h) {
     const m = st.meetings.find((x) => x.startup === s && x.host === h);
     if (m) return { when: fmt(slotOf(m.k).start) };
@@ -521,7 +535,7 @@ td.free{min-width:150px;max-width:240px;vertical-align:middle}
       }).join("") : '<span style="color:var(--mut);font-size:11.5px">' + tr("All busy") + "</span>") + "</div></td>";
       if (D.polOn) row += '<td><div class="cell pc" data-pcell="' + r.k + '">' + (polAt[r.k] || []).map((p) => polHTML(p, clashSet, F && F.has(p.startup))).join("") + "</div></td>";
       const waiting = Object.keys(D.startups).filter((s) => D.startups[s].avail[r.k] && !b.s.has(s));
-      row += '<td class="wait">' + (waiting.length ? waiting.map((s) => '<span class="stag' + (F && F.has(s) ? " hit" : "") + '" data-stag="' + esc(s) + '" data-k="' + r.k + '" style="--sh:' + D.startups[s].hue + '">' + (D.startups[s].priority ? "★ " : "") + esc(s) + "</span>").join(" ") : "<i>" + tr("None (all in sessions)") + "</i>") + "</td></tr>";
+      row += '<td class="wait">' + (waiting.length ? waiting.map((s) => '<span class="stag' + (F && F.has(s) ? " hit" : "") + '" data-stag="' + esc(s) + '" data-k="' + r.k + '" style="--sh:' + D.startups[s].tone.h + ";--sl:" + D.startups[s].tone.l + "%;--ss:" + D.startups[s].tone.s + '%">' + (D.startups[s].priority ? "★ " : "") + esc(s) + "</span>").join(" ") : "<i>" + tr("None (all in sessions)") + "</i>") + "</td></tr>";
       body += row;
     });
     const notes = D.notes.length ? '<button class="btn' + (showNotes ? " on" : "") + '" data-act="notes">' + tr(showNotes ? "Hide attendance notes" : "Show attendance notes") + "</button>" : "";
@@ -866,8 +880,9 @@ td.free{min-width:150px;max-width:240px;vertical-align:middle}
       names: data.names || {}, lang: data.lang || "en",
     };
     data.rows.forEach((r) => { if (r.kind === "slot") D.slotByK[r.k] = r; });
-    // each startup keeps one soft colour (golden angle hues) so you can follow it down the waiting list
-    data.startups.forEach((s, i) => (D.startups[s.name] = { hue: Math.round((i * 137.508 + 205) % 360), avail: toSet(s.avail), priority: s.priority, presenter: s.presenter || "", no: toSet(s.no), pref: toSet(s.pref) }));
+    // each startup keeps one soft colour so you can follow it down the waiting list
+    const tones = startupTones(data.startups.length);
+    data.startups.forEach((s, i) => (D.startups[s.name] = { tone: tones[i], avail: toSet(s.avail), priority: s.priority, presenter: s.presenter || "", no: toSet(s.no), pref: toSet(s.pref) }));
     D.other = data.other || {};
     data.hosts.forEach((h) => (D.hosts[h.name] = { avail: toSet(h.avail), color: h.color, text: h.text, contact: h.contact }));
     S = { meetings: data.meetings || [], parked: data.parked || [], polish: data.polish || [], statuses: data.statuses || {} };
