@@ -360,6 +360,16 @@ def compatible(s: Party, h: Party) -> bool:
     return not h.only or tags_hit(h.only, s.domains)
 
 
+def mismatch(s: Party, h: Party) -> list | None:
+    """Why a startup falls outside a partner's domain rules: ["ex", tags] or ["only", tags], else None."""
+    if h.excluded and tags_hit(h.excluded, s.domains):
+        raw = [t.strip() for t in s.domain_text.split(",") if t.strip()]
+        return ["ex", ", ".join(t for t in raw if tags_hit(h.excluded, {norm(t)})) or ", ".join(sorted(h.excluded))]
+    if h.only and not tags_hit(h.only, s.domains):
+        return ["only", h.only_text]
+    return None
+
+
 def prefers(h: Party, s: Party) -> bool:
     return bool(h.prefer) and tags_hit(h.prefer, s.domains)
 
@@ -845,7 +855,7 @@ def validate(cfg: EventConfig, slots: list[Slot], startups: list[Party], hosts: 
         if not (s.available(sl[m.k]) and h.available(sl[m.k])):
             issues.append(f"Outside availability: {m.startup} with {m.host} at {fmt(m.start)}")
         if not compatible(s, h):
-            issues.append(f"Excluded domain: {m.startup} with {m.host}")
+            issues.append(f"Note: {m.startup} with {m.host} is outside {m.host}'s domain rules (added by hand)")
         count_s[m.startup] += 1
         count_h[m.host] += 1
     psd, pcap = set(), defaultdict(int)
@@ -2214,6 +2224,7 @@ def board_payload(day, cfg, slots, startups, hosts, r) -> dict:
         "startups": [{"name": x.name, "priority": x.priority, "presenter": x.presenter,
                       "avail": [z.k for z in ds if x.available(z)],
                       "no": [h.name for h in hosts if not compatible(x, h)],
+                      "noWhy": {h.name: mismatch(x, h) for h in hosts if not compatible(x, h)},
                       "pref": [h.name for h in hosts if prefers(h, x)],
                       "tags": x.domain_text, "otherN": other_n[x.name]}
                      for x in startups if not x.absent],
@@ -2577,8 +2588,8 @@ def results_tab():
     if r.get("hash") and r["hash"] != frames_hash(current_cfg(), s.s_df, s.h_df):
         st.warning(T("setup_changed"))
     issues = r.get("issues", [])
-    hard = [i for i in issues if not i.startswith("Gap in")]
-    soft = [i for i in issues if i.startswith("Gap in")]
+    hard = [i for i in issues if not i.startswith(("Gap in", "Note:"))]
+    soft = [i for i in issues if i.startswith(("Gap in", "Note:"))]
 
     counts = defaultdict(int)
     for m in meetings:
