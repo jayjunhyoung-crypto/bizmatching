@@ -185,6 +185,15 @@ passcode = "choose-a-passcode"
 
 For local runs put the same content in `.streamlit/secrets.toml` (it is git ignored). Never commit secrets.
 
+## Big events
+
+Tested with 33 partners, 25 to 40 startups, 2 days of 20 minute slots and pitch polishing: about 25 seconds to
+a full schedule with no clashes. The app first builds a quick schedule slot by slot and hands it to the
+solver as a starting point, then gives big events extra solving time automatically (up to 2 minutes). If the
+solver cannot beat the quick schedule in time, the quick one is used. With more than 16 partners every partner
+still gets its own pastel colour. On the board, more than 10 tables switches to slimmer cells, the Session and
+Time columns stay put while you scroll sideways, and Full screen is the easiest way to see a 30 table board.
+
 ## Tuning
 
 - **Solver time limit**: 20 s is plenty for about 40 startups × 15 hosts × 2 days. For bigger events, raise it. The app reports whether the schedule is *Optimal* or a *good schedule within the time limit*.

@@ -151,7 +151,8 @@ S = {
                "항상 지키는 규칙: 같은 스타트업과 호스트는 최대 한 번만 만나고, 누구도 같은 시간에 두 미팅이 잡히지 않으며, "
                "테이블 수·참석 시간·컷오프·불가 시간·분야 제외를 모두 지켜요."),
     "generate": ("Generate schedule", "일정 생성"),
-    "spinner": ("Optimising with OR-Tools CP-SAT…", "OR-Tools로 최적화하는 중…"),
+    "spinner": ("Optimising with OR-Tools CP-SAT… Big events (30+ partners) can take up to 2 minutes.",
+                "OR-Tools로 최적화하는 중… 파트너가 30곳 넘는 큰 행사는 최대 2분 정도 걸릴 수 있어요."),
     "solve_OPTIMAL": ("Optimal schedule found.", "최적 일정을 찾았어요."),
     "solve_FEASIBLE": ("Good schedule found within the time limit (not proven optimal).",
                        "제한 시간 안에 좋은 일정을 찾았어요 (최적인지는 확인 전)."),

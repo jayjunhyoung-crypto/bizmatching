@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import math
 import re
 import time as _time
 from collections import defaultdict
@@ -494,6 +495,84 @@ class SolveResult:
     polish: list = field(default_factory=list)
 
 
+def greedy_schedule(cfg, slots, startups, hosts, settings, x, q, fixed_x=(), fixed_q=()):
+    """Fast first schedule, slot by slot, that keeps every hard rule. It is handed to CP-SAT as a starting
+    point (big events: 30+ partners) and is also the fallback if the solver cannot beat it in time.
+    Returns (chosen x keys, chosen q keys)."""
+    S, H = len(startups), len(hosts)
+    busy_s, busy_h = set(), set()            # (si, k), (hi, k)
+    used_pair, n_s, n_h = set(), [0] * S, [0] * H
+    load, pol_load = defaultdict(int), defaultdict(int)
+    chosen_x, chosen_q = [], []
+
+    def take(si, hi, k):
+        chosen_x.append((si, hi, k)); busy_s.add((si, k)); busy_h.add((hi, k)); used_pair.add((si, hi))
+        n_s[si] += 1; n_h[hi] += 1; load[k] += 1
+
+    for key in fixed_x:
+        if key in x and key[:2] not in used_pair:
+            take(*key)
+    for si, k in fixed_q:
+        if (si, k) in q:
+            chosen_q.append((si, k)); busy_s.add((si, k)); pol_load[k] += 1
+    # pitch polishing: one per startup per polishing day, spread over the allowed slots
+    pol_days_done = {(si, slots[k].day) for si, k in chosen_q}
+    by_sd = defaultdict(list)
+    for (si, k) in q:
+        by_sd[si, slots[k].day].append(k)
+    for (si, d), ks in sorted(by_sd.items(), key=lambda t: (t[0][1], len(t[1]))):
+        if (si, d) in pol_days_done:
+            continue
+        ok = [k for k in ks if (si, k) not in busy_s and pol_load[k] < max(1, cfg.pol_cap)]
+        if ok:
+            k = min(ok, key=lambda k: (pol_load[k], k))
+            chosen_q.append((si, k)); busy_s.add((si, k)); pol_load[k] += 1
+
+    pairs_at = defaultdict(list)                  # k -> [(si, hi)]
+    for (si, hi, k) in x:
+        pairs_at[k].append((si, hi))
+    cap_s = [s.max_m if s.max_m is not None else 10**9 for s in startups]
+    cap_h = [h.max_m if h.max_m is not None else 10**9 for h in hosts]
+    av_h = [[h.available(sl) for sl in slots] for h in hosts]
+    first_k, prev_av = {}, {}                     # per (hi, day): first available slot, previous available slot
+    for hi in range(H):
+        last = {}
+        for sl in slots:
+            if av_h[hi][sl.k]:
+                first_k.setdefault((hi, sl.day), sl.k)
+                prev_av[hi, sl.k] = last.get(sl.day)
+                last[sl.day] = sl.k
+    started = set()                               # (hi, day) for block packing
+    for sl in slots:
+        k = sl.k
+        cand = defaultdict(list)
+        for si, hi in pairs_at[k]:
+            cand[hi].append(si)
+        def may_meet(hi):
+            if (hi, k) in busy_h or n_h[hi] >= cap_h[hi]:
+                return False
+            pk = prev_av.get((hi, k))
+            if settings.packing == "front":
+                return k == first_k.get((hi, sl.day)) or (pk is not None and (hi, pk) in busy_h)
+            if settings.packing == "block":
+                return (hi, sl.day) not in started or (pk is not None and (hi, pk) in busy_h)
+            return True
+        hs = sorted((hi for hi in cand if may_meet(hi)),
+                    key=lambda hi: (0 if prev_av.get((hi, k)) is not None and (hi, prev_av[hi, k]) in busy_h else 1,
+                                    n_h[hi], hi))
+        for hi in hs:
+            if load[k] >= cfg.tables:
+                break
+            ok = [si for si in cand[hi] if (si, k) not in busy_s and (si, hi) not in used_pair and n_s[si] < cap_s[si]]
+            if not ok:
+                continue
+            si = min(ok, key=lambda si: (n_s[si] - (0.5 if startups[si].priority else 0),
+                                         0 if prefers(hosts[hi], startups[si]) else 1, (si + k) % S))
+            take(si, hi, k)
+            started.add((hi, sl.day))
+    return chosen_x, chosen_q
+
+
 def solve_schedule(cfg: EventConfig, slots: list[Slot], startups: list[Party], hosts: list[Party],
                    settings: SolverSettings, fixed: list[tuple] = (),
                    fixed_polish: list[tuple] = ()) -> SolveResult:
@@ -649,12 +728,34 @@ def solve_schedule(cfg: EventConfig, slots: list[Slot], startups: list[Party], h
     if terms:
         model.Maximize(cp_model.LinearExpr.WeightedSum([t[0] for t in terms], [t[1] for t in terms]))
 
+    # Warm start: a quick greedy schedule as a hint, so big events start from a full schedule
+    fx = [(s_ix.get(sn), h_ix.get(hn), k_ix.get((d, st_))) for sn, hn, d, st_ in fixed]
+    fq = [(s_ix.get(sn), k_ix.get((d, st_))) for sn, d, st_ in fixed_polish]
+    gx, gq = greedy_schedule(cfg, slots, startups, hosts, settings, x, q, fx, fq)
+    gxs, gqs = set(gx), set(gq)
+    for key, v in x.items():
+        model.AddHint(v, 1 if key in gxs else 0)
+    for key, v in q.items():
+        model.AddHint(v, 1 if key in gqs else 0)
+
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = float(settings.time_limit)
+    # bigger events get more time automatically (about 1 extra second per 1,500 choices, up to 2 minutes)
+    solver.parameters.max_time_in_seconds = float(max(settings.time_limit, min(120.0, 10 + len(x) / 1500)))
     solver.parameters.num_workers = int(settings.workers)
     code = solver.Solve(model)
     name = solver.StatusName(code)
     wall = _time.time() - t0
+    use_greedy = code not in (cp_model.OPTIMAL, cp_model.FEASIBLE) or \
+        sum(1 for v in x.values() if solver.BooleanValue(v)) < len(gx)
+    if use_greedy and gx and not dropped:
+        sl_by_k = {sl.k: sl for sl in slots}
+        meetings = [Meeting(sl_by_k[k].day, k, sl_by_k[k].start, sl_by_k[k].end, startups[si].name, hosts[hi].name)
+                    for si, hi, k in gx]
+        assign_tables(meetings, cfg.tables, hosts)
+        polish = number_polish([Polish(sl_by_k[k].day, k, sl_by_k[k].start, sl_by_k[k].end, startups[si].name)
+                                for si, k in gq])
+        return SolveResult("FEASIBLE", meetings, "Quick schedule (the solver could not improve it within the time limit).",
+                           wall, len(x) + len(q), None, None, kept, dropped, polish)
 
     if code not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         msg = {
@@ -1005,9 +1106,27 @@ def text_on(hex_fill: str) -> str:
     return "FFFFFF" if 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.5 else "1F2430"
 
 
+def pastel_tones(n: int) -> list[str]:
+    """n clearly different pastel colours: hues spread evenly round the colour wheel, and hues next to each
+    other get a different lightness, so even 40 partners never share a colour."""
+    import colorsys
+    out = []
+    step = max(1, round(n * 0.382))
+    while math.gcd(step, n) != 1:
+        step += 1
+    for i in range(n):
+        j = (i * step) % n
+        lt, st_ = [(0.90, 0.75), (0.85, 0.66), (0.80, 0.56)][j % 3]
+        r, g, b = colorsys.hls_to_rgb(j / n, lt, st_)
+        out.append(f"{round(r * 255):02X}{round(g * 255):02X}{round(b * 255):02X}")
+    return out
+
+
 def host_colors(hosts) -> dict:
-    """Each host (organisation) keeps one colour everywhere."""
-    return {h.name: HOST_PALETTE[i % len(HOST_PALETTE)] for i, h in enumerate(hosts)}
+    """Each host (organisation) keeps one colour everywhere. Up to 16 hosts use the hand picked palette,
+    bigger events get as many evenly spread pastel colours as there are hosts."""
+    pal = HOST_PALETTE if len(hosts) <= len(HOST_PALETTE) else pastel_tones(len(hosts))
+    return {h.name: pal[i % len(pal)] for i, h in enumerate(hosts)}
 
 
 def polish_fill(n: int) -> str:

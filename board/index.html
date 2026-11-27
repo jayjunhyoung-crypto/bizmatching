@@ -39,7 +39,17 @@ body.fs{padding:12px 16px}
 .g td{border-bottom:1px solid var(--line);border-left:1px solid var(--line);padding:4px;vertical-align:middle}
 .g td.sess{position:sticky;left:0;z-index:2;background:var(--panel);text-align:center;font-weight:700;min-width:82px;border-left:0}
 .g td.sess small{display:block;font-weight:500;color:var(--mut)}
-.g td.time{text-align:center;font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums;min-width:94px}
+.g td.time{text-align:center;font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums;min-width:94px;
+ position:sticky;left:82px;z-index:2;background:var(--panel)}
+.g td.sess{width:82px;max-width:82px}
+.g th.c-sess{position:sticky;left:0;z-index:5}
+.g th.c-time{position:sticky;left:82px;z-index:5}
+.g tr.brk td.time{background:var(--zone)}
+/* big events (10+ tables): slimmer cells so more tables fit on screen */
+.compact .cell{min-width:100px;height:56px}
+.compact .chip{padding:4px 5px;min-height:48px}
+.compact .chip b{font-size:12px}
+.compact .chip .h{font-size:10px}
 .g tr.now td.time{color:#fff;background:var(--cob)}
 .g tr.now td{background-color:rgba(18,64,224,.05)}
 .g tr.brk td{background:var(--zone);color:var(--mut);font-weight:700;text-align:center;height:30px;letter-spacing:.02em}
@@ -222,7 +232,7 @@ td.free{min-width:150px;max-width:240px;vertical-align:middle}
     let step = Math.max(1, Math.round(n * 0.382)); while (gcd(step, n) !== 1) step++;
     for (let i = 0; i < n; i++) {
       const j = (i * step) % n;
-      out.push({ h: Math.round(lo + (hi - lo) * (n === 1 ? 0.5 : j / (n - 1))), l: [91, 83, 76][j % 3], s: [78, 62, 52][j % 3] });
+      out.push({ h: Math.round(lo + (hi - lo) * (n === 1 ? 0.5 : j / (n - 1))), l: [91, 86, 80][j % 3], s: [78, 66, 56][j % 3] });
     }
     return out;
   }
@@ -509,7 +519,7 @@ td.free{min-width:150px;max-width:240px;vertical-align:middle}
       if (D.rows[i].kind === "slot") { let j = i; while (j + 1 < D.rows.length && D.rows[j + 1].kind === "slot" && D.rows[j + 1].session === D.rows[i].session) j++; spans[i] = j - i + 1; i = j + 1; } else i++;
     }
     const N = D.names || {};
-    let head = "<tr><th>" + esc(N.session || "Session") + "</th><th>" + esc(N.time || "Time") + "</th>";
+    let head = '<tr><th class="c-sess">' + esc(N.session || "Session") + '</th><th class="c-time">' + esc(N.time || "Time") + "</th>";
     for (let t = 1; t <= D.tables; t++) head += "<th>" + esc(N.table || "Table") + " " + t + "</th>";
     head += "<th>" + tr("Free partners") + "</th>" + (D.polOn ? "<th>" + esc(N.polish || "Pitch polishing") + "</th>" : "") + "<th>" + esc(N.waiting || "Waiting list") + "</th></tr>";
     const F = focusNames();
@@ -551,7 +561,7 @@ td.free{min-width:150px;max-width:240px;vertical-align:middle}
       + '<span><i style="background:rgba(20,164,77,.35)"></i>' + tr("fits") + '</span><span><i style="background:rgba(224,138,0,.4)"></i>' + tr("pushes others") + '</span><span><i style="background:rgba(217,45,32,.4)"></i>' + tr("clash") + "</span></span></div>"
       + (showNotes ? '<div class="notes">' + D.notes.map((x) => "<div><b>" + esc(x[0]) + ":</b> " + esc(x[1]) + "</div>").join("") + "</div>" : "")
       + '<div class="tray" data-tray="1"><span class="lab">' + tr("Unplaced") + "</span>" + (parked || '<span style="color:var(--mut)">' + tr("Drag a meeting here to unschedule it") + "</span>") + "</div>"
-      + '<div class="wrap' + (F ? " focusing" : "") + '" id="wrap"><table class="g"><thead>' + head + "</thead><tbody>" + body + "</tbody></table></div>";
+      + '<div class="wrap' + (F ? " focusing" : "") + (D.tables > 10 ? " compact" : "") + '" id="wrap"><table class="g"><thead>' + head + "</thead><tbody>" + body + "</tbody></table></div>";
     if (keep) { const w = document.getElementById("wrap"); w.scrollTop = keep[0]; w.scrollLeft = keep[1]; }
     renderInfo(F);
     if (lastFlash) {
