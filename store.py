@@ -32,6 +32,14 @@ ITEMS = sa.Table(
     sa.Column("updated_at", sa.Float, index=True), sa.Column("updated_by", sa.Text),
 )
 
+DIRECTORY = sa.Table(       # the team's company directory: one row per kind ("startup", "partner")
+    "bm_directory", META,
+    sa.Column("kind", sa.String(16), primary_key=True),
+    sa.Column("data", sa.Text, nullable=False, default="{}"),
+    sa.Column("version", sa.Integer, nullable=False, default=0),
+    sa.Column("updated_at", sa.Float), sa.Column("updated_by", sa.Text),
+)
+
 
 class Store:
     def __init__(self, url: str):
@@ -110,3 +118,28 @@ class Store:
                     c.execute(ITEMS.insert().values(event_id=eid, item_id=item_id, kind=kind, value=value,
                                                     updated_at=now, updated_by=user))
         return now
+
+    # ---------------- company directory ----------------
+    def get_dir(self, kind: str) -> dict | None:
+        with self.eng.connect() as c:
+            r = c.execute(sa.select(DIRECTORY).where(DIRECTORY.c.kind == kind)).first()
+            return dict(r._mapping) if r else None
+
+    def dir_version(self, kind: str) -> int:
+        with self.eng.connect() as c:
+            v = c.execute(sa.select(DIRECTORY.c.version).where(DIRECTORY.c.kind == kind)).scalar()
+            return int(v or 0)
+
+    def save_dir(self, kind: str, data: str, version: int, user: str) -> int | None:
+        """Save only if nobody else saved since `version` (0 = never saved). Returns the new version or None."""
+        now = time.time()
+        with self.eng.begin() as c:
+            if version == 0:
+                exists = c.execute(sa.select(DIRECTORY.c.kind).where(DIRECTORY.c.kind == kind)).first()
+                if exists:
+                    return None
+                c.execute(DIRECTORY.insert().values(kind=kind, data=data, version=1, updated_at=now, updated_by=user))
+                return 1
+            res = c.execute(DIRECTORY.update().where(DIRECTORY.c.kind == kind, DIRECTORY.c.version == version)
+                            .values(data=data, version=version + 1, updated_at=now, updated_by=user))
+            return version + 1 if res.rowcount == 1 else None

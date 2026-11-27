@@ -1,4 +1,4 @@
-# BizMatch Scheduler
+# BizMatch
 
 A web app that builds optimal, conflict-free 1:1 business matching schedules (startup × investor / corporate speed meetings). You set up the event and participants, click **Generate schedule**, and get a schedule you can download as Excel. It runs on Streamlit, and the scheduling is done by Google OR-Tools CP-SAT.
 
@@ -9,6 +9,28 @@ bizmatch/
 ├── .streamlit/config.toml # theme colour and upload limit
 └── sample_data/           # example startups.csv and hosts.csv
 ```
+
+## Two parts
+
+The app has two pages in the top bar.
+
+1. **Companies** is the team's directory: one row per startup and per partner (investor, corporate, agency).
+   Startups keep Company (EN), Company (KR), CEO and CEO (EN), email, phone, website, tags, a one-liner,
+   founded year, stage, employees, presenter, booth, deck link and notes. Partners keep organisation, contact,
+   title, email, phone, type, country, the domains they prefer, only meet or exclude, website and notes.
+   * Add your own fields under **Fields** (for example Investment ask or Patent).
+   * **Paste or upload** takes cells copied from Google Sheets or Excel, or a CSV/XLSX file, with Korean or
+     English headers. Each column is matched to a field automatically and you can change the match. "Add new
+     and update existing" matches companies by name, so pasting an updated sheet only fills in what changed.
+   * Search looks in every field. **Download Excel** gives both lists as one workbook.
+   * **Company profile** shows one company on a card, plus every meeting it has in business matching
+     (the open event, and in the team workspace every saved event).
+2. **Business matching** is the scheduler below. In an event's participant tables, **📇 From companies**
+   adds companies from the directory (English name, tags, presenter or CEO; for partners the contact, type and
+   domain rules), and **Refresh details** updates the ones already in the event after you edit the directory.
+
+In the team workspace the directory is shared and saved automatically (table `bm_directory`). In personal
+mode it lives in the browser tab and is kept inside **Save project** files.
 
 ## What it does
 

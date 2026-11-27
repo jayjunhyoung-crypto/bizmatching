@@ -12,6 +12,7 @@ import hashlib
 import io
 import json
 import math
+import uuid
 import re
 import time as _time
 from collections import defaultdict
@@ -26,7 +27,7 @@ import streamlit.components.v1 as components
 import importlib
 import i18n as _i18n
 importlib.reload(_i18n)   # Streamlit Cloud reruns app.py after a push but can keep the old text module
-from i18n import COL_LABELS, LANGS, SUMMARY_KO, T, lang
+from i18n import COL_LABELS, DIR_LABELS, LANGS, SUMMARY_KO, T, lang
 from store import Store
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -41,7 +42,7 @@ from ortools.sat.python import cp_model
 # --------------------------------------------------------------------------------------
 # Constants
 # --------------------------------------------------------------------------------------
-APP_TITLE = "BizMatch Scheduler"
+APP_TITLE = "BizMatch"
 SUMMARY = components.declare_component("bizmatch_summary", path=str(Path(__file__).parent / "summary"))
 BOARD = components.declare_component("bizmatch_board", path=str(Path(__file__).parent / "board"))
 STATUSES = ["Scheduled", "Ongoing", "Done", "No-Show"]
@@ -1768,7 +1769,10 @@ def frames_hash(cfg: EventConfig, sdf: pd.DataFrame, hdf: pd.DataFrame) -> str:
 
 
 def project_json(live: bool = True) -> str:
-    return json.dumps(project_dict(live), default=str, indent=1)
+    d = project_dict(live)
+    if "dir_df" in ss():
+        d["directory"] = {k: json.loads(dir_doc(k)) for k in DIR_FIELDS}
+    return json.dumps(d, default=str, indent=1)
 
 
 def project_dict(live: bool = True) -> dict:
@@ -1927,7 +1931,13 @@ def cb_project():
     if not f:
         return
     try:
-        load_project(json.loads(f.getvalue().decode("utf-8")))
+        data = json.loads(f.getvalue().decode("utf-8"))
+        load_project(data)
+        if data.get("directory") and not store():
+            init_dir()
+            for k, doc in data["directory"].items():
+                if k in DIR_FIELDS:
+                    dir_load_doc(k, doc)
         ss().flash = ("success", T("f_loaded_project", f=f.name))
     except Exception as e:  # noqa: BLE001
         ss().flash = ("error", T("f_project_fail", e=e))
@@ -1982,6 +1992,22 @@ def email_allowed(email: str) -> bool:
     if not doms and not emails:
         return True
     return email in emails or email.split("@")[-1] in doms
+
+
+def gate_ready() -> bool:
+    """Is this person already through the login / passcode? (no UI)"""
+    if not store():
+        return True
+    if auth_on():
+        if not getattr(st.user, "is_logged_in", False):
+            return False
+        email = _user_field("email").lower()
+        if not email_allowed(email):
+            return False
+        ss().user_name = _user_field("name") or email
+        return True
+    pc = _secret("access", "passcode")
+    return not ((pc and not ss().get("pass_ok")) or not ss().get("user_name"))
 
 
 def gate() -> bool:
@@ -2090,12 +2116,12 @@ def workspace_bar():
     c1, c2, c3, c4 = st.columns([3, 1, 1, 2.2], vertical_alignment="bottom")
     c1.selectbox(T("ws_event"), list(names), format_func=lambda i: names.get(i, "?"), key="ev_pick",
                  on_change=cb_pick)
-    with c2.popover(T("ws_new"), use_container_width=True):
+    with c2.popover(T("ws_new"), width="stretch"):
         st.text_input(T("ws_new_name"), key="new_ev_name")
         st.radio("from", ["blank", "sample", "copy"], key="new_ev_from", label_visibility="collapsed",
                  format_func=lambda o: T("ws_from_" + o))
         st.button(T("ws_create"), type="primary", on_click=cb_new)
-    with c3.popover(T("ws_more"), use_container_width=True):
+    with c3.popover(T("ws_more"), width="stretch"):
         st.checkbox(T("ws_delete_confirm"), key="del_confirm")
         st.button(T("ws_delete"), on_click=cb_archive, disabled=not ss().get("del_confirm"))
     when = datetime.fromtimestamp(ss().get("ev_at") or _time.time(), ZoneInfo(ss().get("tz") or "UTC"))
@@ -2412,7 +2438,8 @@ def setup_tab():
 
     st.divider()
     st.subheader(T("startups"))
-    u1, u2, u3 = st.columns([3, 1, 1])
+    u1, u0, u2, u3 = st.columns([3, 1.2, 1, 1])
+    dir_pick_popover("startup", u0)
     rename_popover("startup", u3)
     u1.file_uploader(T("import_file"), type=["csv", "xlsx", "xls"], key="up_startup",
                      on_change=cb_upload, args=("startup",), label_visibility="collapsed")
@@ -2435,7 +2462,8 @@ def setup_tab():
         }))
 
     st.subheader(T("hosts"))
-    u1, u2, u3 = st.columns([3, 1, 1])
+    u1, u0, u2, u3 = st.columns([3, 1.2, 1, 1])
+    dir_pick_popover("host", u0)
     rename_popover("host", u3)
     u1.file_uploader(T("import_file"), type=["csv", "xlsx", "xls"], key="up_host",
                      on_change=cb_upload, args=("host",), label_visibility="collapsed")
@@ -2576,7 +2604,7 @@ def results_tab():
 
     dc, hc = st.columns([6, 1], vertical_alignment="bottom")
     day = dc.radio(T("day"), list(range(len(cfg.days))), format_func=cfg.day_title, horizontal=True, key="day_sel")
-    with hc.popover(T("how_board"), use_container_width=True):
+    with hc.popover(T("how_board"), width="stretch"):
         st.markdown(T("board_cap"))
     key = f"board_{r['id']}_{day}"
     apply_board(r, cfg, slots, startups, hosts, day, s.get(key))
@@ -2651,6 +2679,495 @@ def results_tab():
         st.caption(T("excel_lang"))
 
 
+# --------------------------------------------------------------------------------------
+# Company directory: the team's master list of startups and partners. Events pull from it.
+# --------------------------------------------------------------------------------------
+DIR_FIELDS = {
+    "startup": ["Company (EN)", "Company (KR)", "CEO", "CEO (EN)", "Email", "Phone", "Website", "Tags",
+                "One-liner", "Founded", "Stage", "Employees", "Presenter", "Booth", "Deck", "Notes"],
+    "partner": ["Organisation", "Contact", "Title", "Email", "Phone", "Type", "Country", "Prefers",
+                "Only meets", "Excludes", "Website", "Notes"],
+}
+DIR_NAME = {"startup": "Company (EN)", "partner": "Organisation"}
+ST_KO = {"Scheduled": "예정", "Ongoing": "진행 중", "Done": "완료", "No-Show": "노쇼"}
+
+
+def st_label(x: str) -> str:
+    return ST_KO.get(x, x) if lang() == "ko" else x
+PAGES: dict = {}
+DIR_HELP = {"Company (EN)": "dir_h_name_en", "Tags": "dir_h_tags", "Presenter": "dir_h_presenter",
+            "Prefers": "h_prefer", "Only meets": "h_only", "Excludes": "h_excluded", "Type": "dir_h_type"}
+DIR_ALIASES = {  # (field, words that identify a header), checked in order; Korean and English
+    "startup": [
+        ("CEO (EN)", ("대표자 영문", "대표 영문", "ceo (en)", "ceo en", "ceo english", "representative (en)")),
+        ("Company (KR)", ("국문", "회사명 (국문)", "기업명", "회사명", "한글")),
+        ("Company (EN)", ("영문", "english", "company (en)", "company name", "startup name", "startup", "company", "name")),
+        ("CEO", ("대표", "ceo", "founder", "representative")),
+        ("Email", ("mail", "메일")),
+        ("Phone", ("phone", "전화", "연락처", "mobile", "휴대")),
+        ("Website", ("website", "홈페이지", "웹사이트", "url", "web")),
+        ("Tags", ("tag", "domain", "sector", "industry", "분야", "업종", "카테고리", "category")),
+        ("One-liner", ("one-liner", "one liner", "한줄", "한 줄", "소개", "description", "summary", "pitch")),
+        ("Founded", ("found", "설립")),
+        ("Stage", ("stage", "단계", "round", "라운드")),
+        ("Employees", ("employee", "직원", "인원", "headcount")),
+        ("Presenter", ("present", "발표", "피칭", "attendee", "참석")),
+        ("Booth", ("booth", "부스")),
+        ("Deck", ("deck", "ir", "소개서", "자료")),
+        ("Notes", ("note", "메모", "비고", "remark")),
+    ],
+    "partner": [
+        ("Only meets", ("only", "전용", "만 만남", "이 분야만")),
+        ("Excludes", ("exclud", "제외", "avoid")),
+        ("Prefers", ("prefer", "interest", "관심", "선호", "focus", "thesis")),
+        ("Organisation", ("organi", "기관", "회사", "company", "investor", "firm", "partner", "corporate")),
+        ("Title", ("title", "직함", "직책", "position", "role")),
+        ("Contact", ("contact", "담당", "이름", "name", "person")),
+        ("Email", ("mail", "메일")),
+        ("Phone", ("phone", "전화", "연락처", "mobile", "휴대")),
+        ("Type", ("type", "유형", "구분", "kind")),
+        ("Country", ("country", "국가", "region", "지역")),
+        ("Website", ("website", "홈페이지", "웹사이트", "url", "web")),
+        ("Notes", ("note", "메모", "비고", "remark")),
+    ],
+}
+
+
+def dir_cols(kind: str) -> list[str]:
+    return DIR_FIELDS[kind] + [c for c in ss().dir_extra.get(kind, []) if c not in DIR_FIELDS[kind]]
+
+
+def dir_label(col: str) -> str:
+    return DIR_LABELS.get(lang(), {}).get(col) or DIR_LABELS["en"].get(col) or col
+
+
+def dir_tidy(df: pd.DataFrame, kind: str, ver: int | None = None) -> pd.DataFrame:
+    """Every column as text, blank rows dropped, a stable id on every row."""
+    cols = dir_cols(kind)
+    df = df.copy()
+    for c in ["_id"] + cols:
+        if c not in df.columns:
+            df[c] = ""
+    df = df[["_id"] + cols].astype(object).where(pd.notna(df[["_id"] + cols]), "")
+    df = df.map(lambda v: "" if is_blank(v) else str(v).strip())
+    keep = pd.Series([any(r[c] for c in cols) for _, r in df.iterrows()], index=df.index, dtype=bool)
+    df = df[keep].reset_index(drop=True)
+    tag = f"{ss().setdefault('sid', uuid.uuid4().hex[:6])}{ver if ver is not None else ss().get('dir_ver', 0)}"
+    df["_id"] = [v or f"{tag}r{i}" for i, v in enumerate(df["_id"])]
+    return df
+
+
+def dir_set(kind: str, df: pd.DataFrame) -> None:
+    ss().dir_base[kind] = ss().dir_df[kind] = dir_tidy(df, kind)
+    ss().dir_ver = ss().get("dir_ver", 0) + 1
+
+
+def dir_doc(kind: str) -> str:
+    df = ss().dir_df[kind]
+    return json.dumps({"fields": ss().dir_extra.get(kind, []), "rows": df.to_dict("records")},
+                      sort_keys=True, ensure_ascii=False)
+
+
+def init_dir() -> None:
+    s = ss()
+    if "dir_base" not in s:
+        s.dir_extra = {"startup": [], "partner": []}
+        s.dir_base, s.dir_df = {}, {}
+        s.dir_version, s.dir_saved = {"startup": 0, "partner": 0}, {}
+        for k in DIR_FIELDS:
+            s.dir_base[k] = s.dir_df[k] = dir_tidy(pd.DataFrame(), k, 0)
+            s.dir_saved[k] = hashlib.sha1(dir_doc(k).encode()).hexdigest()
+        s.dir_ver = 1
+
+
+def dir_load_doc(kind: str, doc: dict) -> None:
+    ss().dir_extra[kind] = list(doc.get("fields", []))
+    dir_set(kind, pd.DataFrame(doc.get("rows", [])))
+
+
+def dir_pull(force: bool = False) -> None:
+    """Team workspace: load the shared directory when someone else saved a newer one."""
+    S = store()
+    if not S:
+        return
+    init_dir()
+    for kind in DIR_FIELDS:
+        v = S.dir_version(kind)
+        unsaved = hashlib.sha1(dir_doc(kind).encode()).hexdigest() != ss().dir_saved.get(kind)
+        if v > ss().dir_version.get(kind, 0) and (force or not unsaved):
+            row = S.get_dir(kind)
+            dir_load_doc(kind, json.loads(row["data"]))
+            ss().dir_version[kind] = row["version"]
+            ss().dir_saved[kind] = hashlib.sha1(dir_doc(kind).encode()).hexdigest()
+
+
+def dir_autosave() -> None:
+    S = store()
+    if not S:
+        return
+    for kind in DIR_FIELDS:
+        doc = dir_doc(kind)
+        h = hashlib.sha1(doc.encode()).hexdigest()
+        if h == ss().dir_saved.get(kind):
+            continue
+        v = S.save_dir(kind, doc, ss().dir_version.get(kind, 0), me())
+        if v:
+            ss().dir_version[kind], ss().dir_saved[kind] = v, h
+        else:   # someone saved at the same moment: take theirs and say so
+            row = S.get_dir(kind)
+            dir_load_doc(kind, json.loads(row["data"]))
+            ss().dir_version[kind] = row["version"]
+            ss().dir_saved[kind] = hashlib.sha1(dir_doc(kind).encode()).hexdigest()
+            ss().flash = ("warning", T("dir_conflict", who=row.get("updated_by") or "?"))
+            st.rerun()
+
+
+def dir_commit() -> None:
+    """Make the current edits the new starting point (before the filter or the view changes)."""
+    for kind in DIR_FIELDS:
+        ss().dir_base[kind] = ss().dir_df[kind]
+    ss().dir_ver += 1
+
+
+def guess_dir(header: str, kind: str, taken: set) -> str:
+    n = norm(header)
+    for f in dir_cols(kind):
+        if n in {norm(f), norm(dir_label(f)), norm(DIR_LABELS["ko"].get(f, f)), norm(DIR_LABELS["en"].get(f, f))} \
+                and f not in taken:
+            return f
+    for f, words in DIR_ALIASES[kind]:
+        if f not in taken and any(w in n for w in words):
+            return f
+    return "(ignore)"
+
+
+def cb_dir_upload(kind: str):
+    f = ss().get(f"dir_up_{kind}")
+    if not f:
+        return
+    try:
+        ss()[f"dir_paste_{kind}"] = read_upload(f).to_csv(sep="\t", index=False)
+    except Exception as e:  # noqa: BLE001
+        ss().flash = ("error", T("f_read_fail", f=f.name, e=e))
+
+
+def cb_dir_import(kind: str):
+    s = ss()
+    df = parse_paste(s.get(f"dir_paste_{kind}", ""))
+    if df is None:
+        s.flash = ("error", T("f_nothing"))
+        return
+    out = pd.DataFrame(index=range(len(df)))
+    for i, c in enumerate(df.columns):
+        f = s.get(f"dmap_{kind}_{i}_{hashlib.md5(c.encode()).hexdigest()[:6]}", "(ignore)")
+        if f == "(new)":
+            f = c.strip()
+            if f not in dir_cols(kind):
+                s.dir_extra[kind].append(f)
+        if f != "(ignore)" and f not in out.columns:
+            out[f] = df[c].reset_index(drop=True)
+    name = DIR_NAME[kind]
+    if name not in out.columns and not (kind == "startup" and "Company (KR)" in out.columns):
+        s.flash = ("error", T("dir_need_name", col=dir_label(name)))
+        return
+    new = dir_tidy(out, kind, s.dir_ver + 1)
+    old = dir_tidy(s.dir_df[kind], kind)
+    if s.get(f"dir_mode_{kind}", "merge") == "merge":
+        key = (lambda r: norm(r.get(name) or r.get("Company (KR)", ""))) if kind == "startup" else (lambda r: norm(r.get(name)))
+        idx = {key(r): i for i, r in old.iterrows() if key(r)}
+        added = updated = 0
+        rows = old.to_dict("records")
+        for r in new.to_dict("records"):
+            k = key(r)
+            if k in idx:
+                cur = rows[idx[k]]
+                for c in out.columns:
+                    if r.get(c):
+                        cur[c] = r[c]
+                updated += 1
+            else:
+                rows.append(r)
+                added += 1
+        dir_set(kind, pd.DataFrame(rows))
+        s.flash = ("success", T("dir_merged", a=added, u=updated))
+    else:
+        dir_set(kind, new)
+        s.flash = ("success", T("dir_replaced", n=len(new)))
+    s[f"dir_paste_{kind}"] = ""
+
+
+def dir_import_box(kind: str):
+    s = ss()
+    st.file_uploader(T("import_file"), type=["csv", "xlsx", "xls"], key=f"dir_up_{kind}",
+                     on_change=cb_dir_upload, args=(kind,))
+    st.text_area(T("dir_paste"), key=f"dir_paste_{kind}", height=110,
+                 placeholder="회사명\t영문명\t대표자\t이메일\n플렉스컷\tFlexcuit\t김민지\tmj@flexcuit.com")
+    df = parse_paste(s.get(f"dir_paste_{kind}", ""))
+    if df is None:
+        return
+    st.caption(T("rows_found", n=len(df)))
+    opts = ["(ignore)", "(new)"] + dir_cols(kind)
+    show = {"(ignore)": T("ignore"), "(new)": T("dir_new_field"), **{c: dir_label(c) for c in dir_cols(kind)}}
+    taken, grid = set(), st.columns(min(3, len(df.columns)))
+    for i, c in enumerate(df.columns):
+        k = f"dmap_{kind}_{i}_{hashlib.md5(c.encode()).hexdigest()[:6]}"
+        if k not in s:
+            s[k] = guess_dir(c, kind, taken)
+        if s[k] not in ("(ignore)", "(new)"):
+            taken.add(s[k])
+        sample = ", ".join(str(v) for v in df[c].head(2) if not is_blank(v))[:40]
+        grid[i % len(grid)].selectbox(c, opts, key=k, format_func=lambda o, show=show: show.get(o, o),
+                                      help=T("eg", x=sample) if sample else None)
+    st.radio("mode", ["merge", "replace"], horizontal=True, key=f"dir_mode_{kind}", label_visibility="collapsed",
+             format_func=lambda o: T("dir_mode_" + o))
+    st.button(T("import_n", n=len(df)), key=f"dir_go_{kind}", type="primary", on_click=cb_dir_import, args=(kind,))
+
+
+def cb_dir_field(kind: str, action: str):
+    s = ss()
+    dir_commit()
+    if action == "add":
+        name = (s.get(f"dir_newf_{kind}") or "").strip()
+        if name and name not in dir_cols(kind):
+            s.dir_extra[kind].append(name)
+            dir_set(kind, s.dir_df[kind])
+        s[f"dir_newf_{kind}"] = ""
+    else:
+        name = s.get(f"dir_delf_{kind}")
+        if name in s.dir_extra[kind]:
+            s.dir_extra[kind].remove(name)
+            dir_set(kind, s.dir_df[kind].drop(columns=[name], errors="ignore"))
+
+
+def dir_excel() -> bytes:
+    from openpyxl import Workbook
+    wb = Workbook()
+    wb.remove(wb.active)
+    for kind, title in (("startup", "Startups"), ("partner", "Partners")):
+        ws = wb.create_sheet(title)
+        cols = dir_cols(kind)
+        for j, c in enumerate(cols, 1):
+            cell = ws.cell(1, j, dir_label(c))
+            cell.fill, cell.font = _fill(C_HEAD), _f(10, True, C_HEAD_TXT)
+            ws.column_dimensions[get_column_letter(j)].width = 34 if c in ("One-liner", "Notes") else 18
+        for i, r in enumerate(ss().dir_df[kind].to_dict("records"), 2):
+            for j, c in enumerate(cols, 1):
+                ws.cell(i, j, r.get(c, ""))
+        ws.freeze_panes = "B2"
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def dir_display_name(kind: str, r: dict) -> str:
+    if kind == "startup":
+        return r.get("Company (EN)") or r.get("Company (KR)") or "?"
+    return r.get("Organisation") or "?"
+
+
+def dir_history(kind: str, name: str) -> list[dict]:
+    """Meetings this company has in the open event (and, in the team workspace, in every saved event)."""
+    out, key = [], norm(name)
+    who = "startup" if kind == "startup" else "host"
+    other = "host" if who == "startup" else "startup"
+    r = ss().get("result")
+    if r and r.get("meetings"):
+        cfg = EventConfig(**r["cfg"])
+        for m in r["meetings"]:
+            if norm(m[who]) == key:
+                out.append({"event": cfg.name, "with": m[other], "when": f"{cfg.day_short(m['day'])} {fmt(m['start'])}",
+                            "status": st_label(eff_status(Meeting(**m), cfg, ss().statuses, now_for(cfg)))})
+    S = store()
+    if S:
+        cur = ss().get("event_id")
+        for e in S.list_events():
+            if e["id"] == cur:
+                continue
+            row = S.get(e["id"])
+            try:
+                d = json.loads(row["data"])
+            except Exception:  # noqa: BLE001
+                continue
+            for m in (d.get("result") or {}).get("meetings", []) or []:
+                if norm(m.get(who)) == key:
+                    out.append({"event": e["name"], "with": m.get(other), "when": fmt(m.get("start", 0)), "status": ""})
+    return out
+
+
+def dir_profile(kind: str):
+    df = ss().dir_df[kind]
+    if df.empty:
+        return
+    names = [dir_display_name(kind, r) for r in df.to_dict("records")]
+    pick = st.selectbox(T("dir_profile"), ["—"] + names, key=f"dir_pick_{kind}")
+    if pick == "—":
+        return
+    r = df.iloc[names.index(pick)].to_dict()
+    with st.container(border=True):
+        a, b = st.columns([3, 2])
+        if kind == "startup":
+            a.markdown(f"### {r.get('Company (EN)') or r.get('Company (KR)')}")
+            if r.get("Company (KR)") and r.get("Company (EN)"):
+                a.caption(r["Company (KR)"])
+            ceo = " / ".join(x for x in (r.get("CEO"), r.get("CEO (EN)")) if x)
+            if ceo:
+                a.write(f"**{dir_label('CEO')}** {ceo}")
+            if r.get("One-liner"):
+                a.write(r["One-liner"])
+            tags = [t.strip() for t in (r.get("Tags") or "").split(",") if t.strip()]
+        else:
+            a.markdown(f"### {r.get('Organisation')}")
+            a.caption(" · ".join(x for x in (r.get("Contact"), r.get("Title"), r.get("Type"), r.get("Country")) if x))
+            tags = [f"{dir_label('Prefers')} {r['Prefers']}"] if r.get("Prefers") else []
+            if r.get("Only meets"):
+                tags.append(f"{dir_label('Only meets')} {r['Only meets']}")
+            if r.get("Excludes"):
+                tags.append(f"{dir_label('Excludes')} {r['Excludes']}")
+        if tags:
+            a.markdown(" ".join(f":blue-badge[{t}]" for t in tags))
+        shown = {"Company (EN)", "Company (KR)", "CEO", "CEO (EN)", "One-liner", "Tags", "Organisation", "Contact",
+                 "Title", "Type", "Country", "Prefers", "Only meets", "Excludes", "_id"}
+        for c in dir_cols(kind):
+            v = r.get(c)
+            if not v or c in shown:
+                continue
+            if c in ("Website", "Deck") or str(v).startswith("http"):
+                link = v if str(v).startswith("http") else f"https://{v}"
+                b.markdown(f"**{dir_label(c)}** [{v}]({link})")
+            else:
+                b.markdown(f"**{dir_label(c)}** {v}")
+        hist = dir_history(kind, pick)
+        st.markdown(f"**{T('dir_history')}** · {len(hist)}")
+        if hist:
+            st.dataframe(pd.DataFrame(hist).rename(columns={"event": T("dir_h_event"), "with": T("dir_h_with"),
+                                                            "when": T("dir_h_when"), "status": T("dir_h_status")}),
+                         hide_index=True, width="stretch")
+        else:
+            st.caption(T("dir_no_history"))
+
+
+def dir_to_event_row(kind: str, r: dict) -> dict:
+    if kind == "startup":
+        return {"Name": dir_display_name(kind, r), "Presenter": r.get("Presenter") or r.get("CEO (EN)") or r.get("CEO") or "",
+                "Domain": r.get("Tags", "")}
+    return {"Name": r.get("Organisation", ""), "Contact": r.get("Contact", ""),
+            "Type": r.get("Type") if r.get("Type") in HOST_TYPES else "Investor",
+            "Preferred Domains": r.get("Prefers", ""), "Only Domains": r.get("Only meets", ""),
+            "Excluded Domains": r.get("Excludes", "")}
+
+
+def cb_dir_to_event(role: str, mode: str):
+    s = ss()
+    kind = "startup" if role == "startup" else "partner"
+    key_base, key_df = ("s_base", "s_df") if role == "startup" else ("h_base", "h_df")
+    cur = s[key_df].copy()
+    rows = s.dir_df[kind].to_dict("records")
+    by_name = {}
+    for r in rows:
+        for n in (dir_display_name(kind, r), r.get("Company (KR)", "")):
+            if n:
+                by_name[norm(n)] = r
+    if mode == "add":
+        picked = s.get(f"dimp_{role}") or []
+        new = [dir_to_event_row(kind, by_name[norm(n)]) for n in picked if norm(n) in by_name]
+        have = {norm(v) for v in cur["Name"]}
+        new = [r for r in new if norm(r["Name"]) not in have]
+        out = pd.concat([cur, clean_frame(pd.DataFrame(new), role)], ignore_index=True) if new else cur
+        s.flash = ("success", T("dir_added_to_event", n=len(new)))
+    else:
+        n_up = 0
+        for i, name in enumerate(cur["Name"]):
+            r = by_name.get(norm(name))
+            if not r:
+                continue
+            for c, v in dir_to_event_row(kind, r).items():
+                if c != "Name" and v and c in cur.columns:
+                    cur.at[i, c] = v
+            n_up += 1
+        out = cur
+        s.flash = ("success", T("dir_refreshed", n=n_up))
+    s[key_base] = s[key_df] = clean_frame(out, role)
+    s.ver += 1
+    s[f"dimp_{role}"] = []
+
+
+def dir_pick_popover(role: str, where):
+    """In an event: bring companies in from the directory, or refresh their details from it."""
+    kind = "startup" if role == "startup" else "partner"
+    with where.popover(T("dir_from"), width="stretch"):
+        dir_pull()
+        df = ss().dir_df[kind]
+        if df.empty:
+            st.caption(T("dir_empty_hint"))
+            if PAGES.get("companies"):
+                st.page_link(PAGES["companies"], label=T("dir_go"))
+            return
+        cur = ss().s_df if role == "startup" else ss().h_df
+        have = {norm(v) for v in cur["Name"]}
+        names = [dir_display_name(kind, r) for r in df.to_dict("records")]
+        missing = [n for n in names if norm(n) not in have]
+        st.caption(T("dir_from_cap", n=len(missing), t=len(names)))
+        st.multiselect(T("dir_pick"), names, default=missing, key=f"dimp_{role}", label_visibility="collapsed")
+        a, b = st.columns(2)
+        a.button(T("dir_add_btn"), key=f"dimp_go_{role}", type="primary", on_click=cb_dir_to_event, args=(role, "add"))
+        b.button(T("dir_refresh_btn"), key=f"dimp_rf_{role}", on_click=cb_dir_to_event, args=(role, "refresh"),
+                 help=T("dir_refresh_help"))
+
+
+def companies_page():
+    s = ss()
+    init_dir()
+    dir_pull()
+    flash = s.pop("flash", None)
+    if flash:
+        getattr(st, flash[0])(flash[1])
+    st.subheader(T("dir_title"))
+    st.caption(T("dir_cap"))
+    counts = {k: len(s.dir_df[k]) for k in DIR_FIELDS}
+    kind = st.segmented_control("kind", list(DIR_FIELDS), key="dir_kind", default="startup", on_change=dir_commit,
+                                format_func=lambda k: f"{T('dir_' + k + 's')} {counts[k]}",
+                                label_visibility="collapsed") or "startup"
+    t1, t2, t3, t4 = st.columns([3, 1, 1, 1], vertical_alignment="bottom")
+    q = t1.text_input(T("dir_search"), key=f"dir_q_{kind}", on_change=dir_commit, placeholder=T("dir_search_ph"),
+                      label_visibility="collapsed")
+    with t2.popover(T("dir_import"), width="stretch"):
+        dir_import_box(kind)
+    t3.download_button(T("dir_export"), dir_excel(), "companies.xlsx", width="stretch",
+                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    with t4.popover(T("dir_fields"), width="stretch"):
+        st.text_input(T("dir_new_field_name"), key=f"dir_newf_{kind}", placeholder=T("dir_new_field_ph"))
+        st.button(T("dir_add_field"), key=f"dir_addf_{kind}", on_click=cb_dir_field, args=(kind, "add"))
+        if s.dir_extra[kind]:
+            st.selectbox(T("dir_remove_field"), s.dir_extra[kind], key=f"dir_delf_{kind}")
+            st.button(T("dir_remove_btn"), key=f"dir_rmf_{kind}", on_click=cb_dir_field, args=(kind, "del"))
+
+    base = s.dir_base[kind]
+    ql = (q or "").strip().lower()
+    view = base[pd.Series([any(ql in str(v).lower() for v in r) for r in base.itertuples(index=False)],
+                          index=base.index, dtype=bool)] if ql else base
+    cfg = {"_id": None}
+    for c in dir_cols(kind):
+        if kind == "partner" and c == "Type":
+            cfg[c] = st.column_config.SelectboxColumn(dir_label(c), options=HOST_TYPES)
+        elif c in ("One-liner", "Notes"):
+            cfg[c] = st.column_config.TextColumn(dir_label(c), width="large")
+        else:
+            cfg[c] = st.column_config.TextColumn(dir_label(c), help=T(DIR_HELP[c]) if c in DIR_HELP else None,
+                                                 width="medium" if c == DIR_NAME[kind] else None)
+    edited = st.data_editor(view.reset_index(drop=True), key=f"dir_{kind}_{s.dir_ver}", num_rows="dynamic",
+                            hide_index=True, column_config=cfg, width="stretch",
+                            height=min(640, 38 + 35 * (len(view) + 2)))
+    if ql:
+        merged = pd.concat([base[~base["_id"].isin(view["_id"])], edited], ignore_index=True)
+    else:
+        merged = edited
+    s.dir_df[kind] = dir_tidy(merged, kind)
+    if ql:
+        st.caption(T("dir_filtered", n=len(view), t=len(base)))
+    dir_profile(kind)
+    dir_autosave()
+
+
 def main():
     st.set_page_config(page_title=APP_TITLE, page_icon="🗓️", layout="wide")
     if "lang" not in ss():
@@ -2663,8 +3180,18 @@ def main():
     h1.title(APP_TITLE)
     h2.radio(T("language"), list(LANGS), format_func=LANGS.get, key="lang", horizontal=True, on_change=cb_lang)
     st.caption(T("app_caption"))
-    if not gate():
+    ready = gate_ready()
+    PAGES["companies"] = st.Page(companies_page, title=T("nav_companies"), icon="📇", url_path="companies", default=True)
+    PAGES["matching"] = st.Page(matching_page, title=T("nav_matching"), icon="🤝", url_path="matching")
+    nav = st.navigation(list(PAGES.values()), position="top" if ready else "hidden")   # keeps /matching links after login
+    if not ready:
+        gate()
         return
+    init_dir()
+    nav.run()
+
+
+def matching_page():
     S = store()
     if S:
         pend = ss().pop("pending_reload", None)
