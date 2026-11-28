@@ -221,6 +221,7 @@ S = {
                    "엑셀 파일은 참가자와 공유하기 좋게 영어로 만들어져요."),
     "lunch_row": ("Lunch break", "점심시간"),
     # company directory
+    "nav_programs": ("Programs", "프로그램"),
     "nav_companies": ("Companies", "회사 정보"),
     "nav_matching": ("Business matching", "비즈매칭"),
     "dir_title": ("Company directory", "회사 정보"),

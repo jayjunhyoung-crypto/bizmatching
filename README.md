@@ -1,18 +1,76 @@
 # BizMatch
 
-A web app that builds optimal, conflict-free 1:1 business matching schedules (startup × investor / corporate speed meetings). You set up the event and participants, click **Generate schedule**, and get a schedule you can download as Excel. It runs on Streamlit, and the scheduling is done by Google OR-Tools CP-SAT.
+A web app for running accelerator programs: each program's stages and deadlines, its startups, intake
+interviews, results and KPIs, and the proposal, interim and final reports as 한글 (.hwpx) files. It also builds
+optimal, conflict-free 1:1 business matching schedules (startup × investor / corporate speed meetings) with
+Google OR-Tools CP-SAT. It runs on Streamlit.
 
 ```
 bizmatch/
-├── app.py                 # the whole app: parsing, CP-SAT model, views, Excel export
+├── app.py                 # pages, company directory, business matching (CP-SAT model, board, Excel export)
+├── programs.py            # Programs page: stages, startups, intake, KPIs and outcomes, documents
+├── docgen.py              # document sections built from the data, Markdown -> .hwpx (한글)
+├── ai.py                  # optional AI drafts (Claude API)
+├── store.py               # team workspace database (events, directory, program documents)
+├── i18n.py                # English and Korean text
+├── board/ summary/ local/ # browser components: matching board, summary, browser backup
 ├── requirements.txt
-├── .streamlit/config.toml # theme colour and upload limit
-└── sample_data/           # example startups.csv and hosts.csv
+└── .streamlit/config.toml # theme colour and upload limit
 ```
 
-## Two parts
+## Programs
 
-The app has two pages in the top bar.
+**Programs** is the first page. Every accelerator program has its own structure, so a program starts from a
+template and everything in it can be changed.
+
+* **Templates**: global acceleration, exhibition or CES delegation, business matching event, or blank. A template
+  fills in the stages (proposal, contract, selection, kick-off, intake, workshops, matching, interim report, demo
+  day, final report, settlement and so on) spread over the program dates, each with a checklist, plus default
+  KPIs and intake questions. **Create an example program** shows a filled one.
+* The page lists **deadlines in the next two weeks** across all programs and a card per program with its
+  progress.
+* Inside a program:
+  * **Overview**: name, client, dates, PM, team, objective, budget, and the business matching events that
+    belong to the program (their meetings count toward the KPIs and reports).
+  * **Stages & schedule**: a table of stages with status, dates, owner and notes, a timeline with today marked,
+    and a checklist per stage.
+  * **Startups**: pick the program's startups from Companies and see intake status, meetings and outcomes for
+    each.
+  * **Intake interview**: the team records each interview while talking (same questions for every startup,
+    editable under **Questions**). **Summarize with AI** turns the notes into a summary and suggests tags,
+    stage and a one line intro, which you can apply to Companies. Download one startup or all of them as 한글.
+  * **Results & KPIs**: meetings from the linked events (done, no-shows, upcoming, partners), indicators with
+    target and actual (counted automatically from meetings, interviews and the outcome log, or typed), and an
+    outcome log (follow-up meetings, NDA, MOU, PoC, investment, contract).
+  * **Reports**: a proposal with a quote (line items, VAT, totals), an interim report and a final report. Every
+    section starts filled from the program data and keeps following it until someone edits that section.
+    Each section can be refilled from the data or drafted by AI, then edited freely. **Download 한글 file** gives
+    a .hwpx in the usual Korean government report layout (title band, numbered section boxes, □ and - bullets,
+    ruled tables, page numbers). It opens in 한글 2014 or later; if the client wants .hwp, open it in 한글 and
+    use Save As. **Preview pages** shows an approximate layout in the browser.
+
+Everything is saved as you type. In the team workspace programs are shared (table `bm_docs`); when two people
+change the same program at the same moment, both changes are kept unless they touched the same field, in which
+case the first one stays and the second person sees a note.
+
+### AI drafts (optional)
+
+AI drafts use the Claude API. Without a key the app works the same and the AI buttons are hidden. To turn them
+on, add this to the secrets (Streamlit Cloud: **⋮ → Settings → Secrets**; locally `.streamlit/secrets.toml`):
+
+```toml
+[anthropic]
+api_key = "sk-ant-..."
+model = "claude-sonnet-5-5"   # optional
+```
+
+Only what a section needs is sent (program details, stages, indicators, meeting counts, outcomes, intake notes).
+Drafts are written in the usual Korean report style and mark anything they cannot confirm with (확인 필요);
+check numbers and names before sending a report.
+
+## Companies and business matching
+
+The other two pages in the top bar.
 
 1. **Companies** is the team's directory: one row per startup and per partner (investor, corporate, agency).
    Startups keep Company (EN), Company (KR), CEO and CEO (EN), email, phone, website, tags, a one-liner,

@@ -29,6 +29,7 @@ import i18n as _i18n
 importlib.reload(_i18n)   # Streamlit Cloud reruns app.py after a push but can keep the old text module
 from i18n import COL_LABELS, DIR_LABELS, LANGS, SUMMARY_KO, T, lang
 from store import Store
+import programs
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.cell.rich_text import CellRichText, TextBlock
@@ -1884,6 +1885,8 @@ def project_json(live: bool = True) -> str:
     d = project_dict(live)
     if "dir_df" in ss():
         d["directory"] = {k: json.loads(dir_doc(k)) for k in DIR_FIELDS}
+    if ss().get("local_docs"):
+        d["program_docs"] = ss().local_docs
     return json.dumps(d, default=str, indent=1)
 
 
@@ -1908,7 +1911,7 @@ def project_dict(live: bool = True) -> dict:
         "startups": s.s_df.to_dict("records"),
         "hosts": s.h_df.to_dict("records"),
         "result": s.result and {k: v for k, v in s.result.items()
-                                if k in ("meetings", "polish", "parked", "packing", "status", "hash")},
+                                if k in ("meetings", "polish", "parked", "packing", "status", "hash", "cfg")},
     }
     if live:
         d["statuses"] = s.statuses
@@ -2056,6 +2059,8 @@ def cb_project():
             for k, doc in data["directory"].items():
                 if k in DIR_FIELDS:
                     dir_load_doc(k, doc)
+        if data.get("program_docs") and not store():
+            ss().local_docs = data["program_docs"]
         ss().flash = ("success", T("f_loaded_project", f=f.name))
     except Exception as e:  # noqa: BLE001
         ss().flash = ("error", T("f_project_fail", e=e))
@@ -3253,13 +3258,113 @@ def dir_pick_popover(role: str, where):
                  help=T("dir_refresh_help"))
 
 
+def matching_stats(event_ids: list) -> dict:
+    """Meetings of the chosen business matching events, counted by live status, overall and per startup."""
+    out = {"events": [], "total": 0, "by": {}, "partners": set(), "startups": {}}
+    S = store()
+
+    def cfg_of(res: dict, data: dict | None) -> EventConfig | None:
+        """The event's settings, enough to tell from the clock which meetings are over."""
+        try:
+            if res.get("cfg"):
+                return EventConfig(**res["cfg"])
+            if data:
+                return EventConfig(days=data.get("days") or [{"label": "Day 1", "date": ""}],
+                                   tz=(data.get("config") or {}).get("tz") or "Asia/Singapore")
+        except Exception:  # noqa: BLE001
+            pass
+        return None
+
+    def add(name: str, cfg: EventConfig | None, meetings: list, statuses: dict):
+        if not meetings:
+            return
+        out["events"].append(name)
+        for m in meetings:
+            if not isinstance(m, dict) or not m.get("startup") or not m.get("host"):
+                continue
+            mid = f"{m['startup']}|{m['host']}"
+            stt = None
+            if cfg:
+                try:
+                    stt = eff_status(Meeting(**m), cfg, statuses, now_for(cfg))
+                except Exception:  # noqa: BLE001  (a meeting saved by an older version)
+                    stt = None
+            if stt is None:
+                stt = statuses.get(mid) if statuses.get(mid) in STATUSES else "Scheduled"
+            out["total"] += 1
+            out["by"][stt] = out["by"].get(stt, 0) + 1
+            out["partners"].add(m["host"])
+            k = norm(m["startup"])
+            e = out["startups"].setdefault(k, {"name": m["startup"], "total": 0, "done": 0, "noshow": 0, "by": {},
+                                              "partners": []})
+            e["total"] += 1
+            e["by"][stt] = e["by"].get(stt, 0) + 1
+            e["done"] += stt == "Done"
+            e["noshow"] += stt == "No-Show"
+            if stt == "Done":
+                e["partners"].append(m["host"])
+
+    for eid in event_ids or []:
+        if eid == "current" or (S and eid == ss().get("event_id")):
+            r = ss().get("result") or {}
+            try:
+                cfg = current_cfg() if "days_df" in ss() else cfg_of(r, None)
+            except Exception:  # noqa: BLE001
+                cfg = cfg_of(r, None)
+            add(ss().get("ev_name") or "Business matching", cfg, r.get("meetings") or [], ss().get("statuses", {}))
+        elif S:
+            row = S.get(eid)
+            if not row or row.get("archived"):
+                continue
+            try:
+                d = json.loads(row["data"])
+            except Exception:  # noqa: BLE001
+                continue
+            res = d.get("result") or {}
+            items = S.items(eid)
+            sts = {i["item_id"]: i["value"] for i in items if i["kind"] == "status" and i["value"] in STATUSES}
+            add(row.get("name") or "?", cfg_of(res, d), res.get("meetings") or [], sts)
+    return out
+
+
+def event_choices() -> list:
+    S = store()
+    if S:
+        return [(e["id"], e["name"] or "Untitled") for e in S.list_events()]
+    r = ss().get("result")
+    return [("current", ss().get("ev_name") or "Business matching")] if r and r.get("meetings") else []
+
+
+def dir_rows(kind: str) -> list[dict]:
+    init_dir()
+    dir_pull()
+    return ss().dir_df[kind].to_dict("records")
+
+
+def dir_update(kind: str, name: str, fields: dict) -> None:
+    """Fill in company details from another page (e.g. an intake summary), then save the directory."""
+    init_dir()
+    df = ss().dir_df[kind].copy()
+    hit = [i for i, r in df.iterrows() if norm(dir_display_name(kind, r.to_dict())) == norm(name)]
+    if not hit:
+        row = {DIR_NAME[kind]: name, **fields}
+        df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
+    else:
+        for c, v in fields.items():
+            if c in df.columns:
+                df.at[hit[0], c] = v
+    dir_set(kind, df)
+    dir_autosave()
+
+
 def companies_page():
     s = ss()
     init_dir()
     dir_pull()
+    box = st.container()
     flash = s.pop("flash", None)
     if flash:
-        getattr(st, flash[0])(flash[1])
+        getattr(box, flash[0])(flash[1])
     st.subheader(T("dir_title"))
     st.caption(T("dir_cap"))
     counts = {k: len(s.dir_df[k]) for k in DIR_FIELDS}
@@ -3335,6 +3440,7 @@ def page_switched() -> None:
         s.ver = s.get("ver", 0) + 1
     if "dir_df" in s:
         dir_commit()
+    programs.on_page_switch()
 
 
 def local_backup_restore() -> None:
@@ -3355,6 +3461,8 @@ def local_backup_restore() -> None:
         for k, doc in (data.get("directory") or {}).items():
             if k in DIR_FIELDS:
                 dir_load_doc(k, doc)
+        if data.get("program_docs"):
+            ss().local_docs = data["program_docs"]
         ss().flash = ("info", T("restored_local"))
     except Exception:  # noqa: BLE001
         pass
@@ -3377,6 +3485,7 @@ def local_backup_save() -> None:
 
 
 def main():
+    programs.begin_run()   # first, before anything is drawn: keeps what was typed right before a click that leaves the page
     st.set_page_config(page_title=APP_TITLE, page_icon="🗓️", layout="wide")
     keep_widget_state()
     if "lang" not in ss():
@@ -3390,7 +3499,10 @@ def main():
     h2.radio(T("language"), list(LANGS), format_func=LANGS.get, key="lang", horizontal=True, on_change=cb_lang)
     st.caption(T("app_caption"))
     ready = gate_ready()
-    PAGES["companies"] = st.Page(companies_page, title=T("nav_companies"), icon="📇", url_path="companies", default=True)
+    programs.API.update(store=store, me=me, norm=norm, dir_rows=dir_rows, dir_name=dir_display_name,
+                        dir_update=dir_update, matching_stats=matching_stats, event_choices=event_choices, pages=PAGES)
+    PAGES["programs"] = st.Page(programs.page, title=T("nav_programs"), icon="🗂️", url_path="programs", default=True)
+    PAGES["companies"] = st.Page(companies_page, title=T("nav_companies"), icon="📇", url_path="companies")
     PAGES["matching"] = st.Page(matching_page, title=T("nav_matching"), icon="🤝", url_path="matching")
     nav = st.navigation(list(PAGES.values()), position="top" if ready else "hidden")   # keeps /matching links after login
     if not ready:
@@ -3428,9 +3540,10 @@ def matching_page():
                 eid, _ = S.create(d["config"]["name"], canon(d), me())
                 open_event(eid)
     workspace_bar()
+    box = st.container()   # a fixed slot, so a message never moves the tabs (moving them resets the open tab)
     flash = ss().pop("flash", None)
     if flash:
-        getattr(st, flash[0])(flash[1])
+        getattr(box, flash[0])(flash[1])
     t1, t2, t3, t4 = st.tabs([T("tab1"), T("tab2"), T("tab3"), T("tab4")])
     with t1:
         setup_tab()

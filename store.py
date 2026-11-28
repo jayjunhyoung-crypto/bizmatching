@@ -40,6 +40,18 @@ DIRECTORY = sa.Table(       # the team's company directory: one row per kind ("s
     sa.Column("updated_at", sa.Float), sa.Column("updated_by", sa.Text),
 )
 
+DOCS = sa.Table(            # programs, intake records, report drafts: one JSON document per row
+    "bm_docs", META,
+    sa.Column("kind", sa.String(24), primary_key=True),
+    sa.Column("id", sa.String(200), primary_key=True),
+    sa.Column("parent", sa.String(64), index=True),
+    sa.Column("name", sa.Text, nullable=False, default=""),
+    sa.Column("data", sa.Text, nullable=False, default="{}"),
+    sa.Column("version", sa.Integer, nullable=False, default=1),
+    sa.Column("updated_at", sa.Float), sa.Column("updated_by", sa.Text),
+    sa.Column("archived", sa.Boolean, nullable=False, default=False),
+)
+
 
 class Store:
     def __init__(self, url: str):
@@ -143,3 +155,47 @@ class Store:
             res = c.execute(DIRECTORY.update().where(DIRECTORY.c.kind == kind, DIRECTORY.c.version == version)
                             .values(data=data, version=version + 1, updated_at=now, updated_by=user))
             return version + 1 if res.rowcount == 1 else None
+
+    # ---------------- generic documents (programs, intake records, report drafts) ----------------
+    def doc_list(self, kind: str, parent: str | None = None, with_data: bool = False) -> list[dict]:
+        cols = [DOCS.c.id, DOCS.c.name, DOCS.c.parent, DOCS.c.version, DOCS.c.updated_at, DOCS.c.updated_by]
+        q = sa.select(*(cols + ([DOCS.c.data] if with_data else []))).where(DOCS.c.kind == kind,
+                                                                             DOCS.c.archived.is_(False))
+        if parent is not None:
+            q = q.where(DOCS.c.parent == parent)
+        with self.eng.connect() as c:
+            return [dict(r._mapping) for r in c.execute(q.order_by(DOCS.c.updated_at.desc()))]
+
+    def doc_get(self, kind: str, id_: str) -> dict | None:
+        with self.eng.connect() as c:
+            r = c.execute(sa.select(DOCS).where(DOCS.c.kind == kind, DOCS.c.id == id_)).first()
+            return dict(r._mapping) if r else None
+
+    def doc_version(self, kind: str, id_: str) -> int:
+        with self.eng.connect() as c:
+            v = c.execute(sa.select(DOCS.c.version).where(DOCS.c.kind == kind, DOCS.c.id == id_)).scalar()
+            return int(v or 0)
+
+    def doc_put(self, kind: str, id_: str, data: str, version: int, user: str, parent: str = "",
+                name: str = "") -> int | None:
+        """Create (version 0) or update only if nobody saved since `version`. Returns the new version or None."""
+        now = time.time()
+        if version == 0:
+            try:
+                with self.eng.begin() as c:
+                    if c.execute(sa.select(DOCS.c.id).where(DOCS.c.kind == kind, DOCS.c.id == id_)).first():
+                        return None
+                    c.execute(DOCS.insert().values(kind=kind, id=id_, parent=parent, name=name, data=data, version=1,
+                                                   updated_at=now, updated_by=user, archived=False))
+                return 1
+            except sa.exc.IntegrityError:   # someone created it at the same moment
+                return None
+        with self.eng.begin() as c:
+            res = c.execute(DOCS.update().where(DOCS.c.kind == kind, DOCS.c.id == id_, DOCS.c.version == version)
+                            .values(data=data, name=name, version=version + 1, updated_at=now, updated_by=user))
+            return version + 1 if res.rowcount == 1 else None
+
+    def doc_archive(self, kind: str, id_: str, user: str) -> None:
+        with self.eng.begin() as c:
+            c.execute(DOCS.update().where(DOCS.c.kind == kind, DOCS.c.id == id_)
+                      .values(archived=True, updated_at=time.time(), updated_by=user))
