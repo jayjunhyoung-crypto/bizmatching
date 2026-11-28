@@ -314,8 +314,9 @@ def report_style():
 
     from hwpx_automation.markdown import MarkdownStyle
     style = MarkdownStyle.report()
-    try:   # navy and light blue title band instead of the four bright strips
-        style = replace(style, banner_colors=("#1B1760", "#88A1EB", "#88A1EB", "#1B1760"))
+    try:   # the app's navy and blue: title band, section boxes and table headers
+        style = replace(style, banner_colors=("#152C5B", "#8FB0F0", "#8FB0F0", "#152C5B"),
+                        section_colors=("#152C5B", "#8FB0F0", "#152C5B"), table_header_shading="#E6EDFB")
     except Exception:  # noqa: BLE001
         pass
     return style

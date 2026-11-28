@@ -14,8 +14,9 @@ bizmatch/
 ├── store.py               # team workspace database (events, directory, program documents)
 ├── i18n.py                # English and Korean text
 ├── board/ summary/ local/ # browser components: matching board, summary, browser backup
+├── static/                # Pretendard font (SIL Open Font License) and the BizMatch logo
 ├── requirements.txt
-└── .streamlit/config.toml # theme colour and upload limit
+└── .streamlit/config.toml # theme, font, upload limit
 ```
 
 ## Programs
@@ -68,6 +69,14 @@ Only what a section needs is sent (program details, stages, indicators, meeting 
 Drafts are written in the usual Korean report style and mark anything they cannot confirm with (확인 필요);
 check numbers and names before sending a report.
 
+## Look and feel
+
+One calm blue (`#2B65D9`) marks what you can press or what matters now (buttons, the open tab, progress); everything
+else is white space and a grey scale for text and borders. Colour is only used where it carries meaning: green for
+done, orange for soon, red for late or no-show. 한글 reports use the matching navy (`#152C5B`). Text is set in
+Pretendard, served with the app (`static/fonts`, SIL Open Font License) so Korean looks the same on every computer.
+All of it lives in `.streamlit/config.toml` under `[theme]`.
+
 ## Companies and business matching
 
 The other two pages in the top bar.
@@ -99,7 +108,7 @@ another computer). Paste imports never drop a column: a header the app does not 
 
 ## What it does
 
-**Language.** The whole app (setup, results and the drag-and-drop board) is available in English and Korean (한국어). Switch at the top right. The choice is kept in the link (`?lang=ko`), so you can share a Korean link. The Excel file stays in English so it can go to participants, and Korean column headings (스타트업, 발표자, 분야, 참석일 ...) and inputs such as `불참` or `1일차` are understood when you paste.
+**Language.** The whole app (programs, setup, results and the drag-and-drop board) is available in English and Korean (한국어). It opens in the browser's language; switch at the bottom of any page. The choice is kept in the link (`?lang=ko`), so you can share a Korean link. The Excel file stays in English so it can go to participants, and Korean column headings (스타트업, 발표자, 분야, 참석일 ...) and inputs such as `불참` or `1일차` are understood when you paste.
 
 **Tab 1. Event & Participants**
 - Multi-day events (one row per day, with dates), day start and end, meeting length (default 20 min), optional gap between meetings, lunch break, number of tables, time zone.

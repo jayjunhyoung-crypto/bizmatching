@@ -5,8 +5,9 @@ LANGS = {"en": "English", "ko": "한국어"}
 
 S = {
     # app
-    "app_caption": ("Company directory and 1:1 business matching, scheduled with Google OR-Tools CP-SAT",
-                    "회사 정보 관리와 1:1 비즈매칭 일정 (Google OR-Tools CP-SAT로 최적화)"),
+    "ws_signin": ("Team workspace", "팀 작업공간"),
+    "app_caption": ("BizMatch · accelerator programs, company directory and 1:1 business matching",
+                    "BizMatch · 액셀러레이터 프로그램, 회사 정보, 1:1 비즈매칭"),
     "tab1": ("1. Event & Participants", "1. 행사 & 참가자"),
     "tab2": ("2. Generate", "2. 일정 생성"),
     "tab3": ("3. Results & Live Board", "3. 결과 & 라이브 보드"),

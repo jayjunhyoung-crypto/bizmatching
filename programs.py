@@ -8,6 +8,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import re
 import time
 import uuid
 from datetime import date, timedelta
@@ -38,6 +39,12 @@ def L2(pair) -> str:
     return pair[1] if lang() == "ko" else pair[0]
 
 
+def who() -> str:
+    """The signed in name, or '' in personal mode (nobody to show)."""
+    name = API["me"]() if API.get("me") else ""
+    return "" if name in ("", "someone") else name
+
+
 def norm(x) -> str:
     return API["norm"](x) if API.get("norm") else str(x or "").strip().lower()
 
@@ -46,7 +53,7 @@ STR = {
     "programs": ("Programs", "프로그램"),
     "programs_cap": ("Every accelerator program in one place: stages and deadlines, startups, intake interviews, "
                      "results and reports.", "액셀러레이터 프로그램을 한곳에서 관리해요. 단계와 마감, 참가사, intake interview, 성과, 보고서까지."),
-    "new_program": ("＋ New program", "＋ 새 프로그램"),
+    "new_program": ("New program", "새 프로그램"),
     "p_name": ("Program name", "프로그램 이름"), "p_client": ("Client", "발주처"),
     "p_template": ("Template", "템플릿"), "p_start": ("Start", "시작일"), "p_end": ("End", "종료일"),
     "p_pm": ("PM", "PM"), "p_team": ("Team", "팀원"), "p_budget": ("Budget", "예산"),
@@ -93,19 +100,19 @@ STR = {
     "ik_notes": ("Other notes", "기타 메모"), "ik_questions": ("Questions", "질문 관리"),
     "ik_q_help": ("The same questions are used for every startup in this program.", "이 프로그램의 모든 스타트업에 같은 질문을 써요."),
     "q_section": ("Section", "구분"), "q_text": ("Question", "질문"),
-    "ik_ai": ("✨ Summarize with AI", "✨ AI로 정리"), "ik_ai_off": ("AI summary is off (add an API key, see README).",
+    "ik_ai": ("Summarize with AI", "AI로 정리"), "ik_ai_off": ("AI summary is off (add an API key, see README).",
                                                               "AI 정리는 꺼져 있어요 (API 키를 넣으면 켜져요, README 참고)."),
     "ik_summary": ("Summary", "요약"), "ik_suggest": ("Suggested company details", "회사 정보 제안"),
     "ik_apply": ("Apply to the company directory", "회사 정보에 반영"), "ik_applied": ("Company details updated.", "회사 정보를 갱신했어요."),
-    "ik_now": ("now: {v}", "지금: {v}"), "ik_doc": ("⬇ This startup (.hwpx)", "⬇ 이 기업 한글 파일"),
-    "ik_doc_all": ("⬇ All startups (.hwpx)", "⬇ 전체 기업 한글 파일"),
+    "ik_now": ("now: {v}", "지금: {v}"), "ik_doc": ("This startup (.hwpx)", "이 기업 한글 파일"),
+    "ik_doc_all": ("All startups (.hwpx)", "전체 기업 한글 파일"),
     "ik_summary_help": ("Edit freely. It goes into the intake file and the reports.", "자유롭게 고쳐도 돼요. intake 파일과 보고서에 들어가요."),
     "ai_fail": ("The AI call failed: {e}", "AI 호출이 실패했어요: {e}"),
-    "kpi_title": ("Indicators", "성과 지표"), "kpi_help": ("Auto indicators count from meetings, interviews and the outcome log. "
+    "kpi_title": ("Indicators", "성과 지표"), "kpi_edit": ("Set up indicators (targets, how they count)", "지표 설정 (목표, 집계 방식)"), "kpi_help": ("Auto indicators count from meetings, interviews and the outcome log. "
                                                         "Manual ones use the number you type.",
                                                         "자동 지표는 미팅, 인터뷰, 성과 기록에서 세고, 수동 지표는 적은 숫자를 써요."),
     "k_name": ("Indicator", "지표"), "k_target": ("Target", "목표"), "k_unit": ("Unit", "단위"),
-    "k_source": ("Counts from", "집계 방식"), "k_manual": ("Manual value", "수동 값"),
+    "k_source": ("Counts from", "집계 방식"), "k_manual": ("Value (manual ones)", "실적 (수동 지표만)"),
     "k_actual": ("Actual", "실적"), "k_rate": ("Achieved", "달성률"),
     "out_title": ("Outcome log", "성과 기록"), "out_help": ("Follow-up meetings, MOUs, PoCs, investments… one row each.",
                                                         "후속 미팅, MOU, PoC, 투자 등을 한 줄씩 적어요."),
@@ -129,12 +136,12 @@ STR = {
     "qt_sub": ("Subtotal", "소계"), "qt_vatv": ("VAT", "부가세"), "qt_total": ("Total", "합계"),
     "rp_title": ("Title", "제목"), "rp_asof": ("As of", "기준일"), "rp_byline": ("Byline (under the title)", "제목 아래 줄"),
     "rp_fill_all": ("Refill every section from the data", "모든 섹션 데이터로 다시 채우기"),
-    "rp_ai_all": ("✨ Draft every section with AI", "✨ 모든 섹션 AI 초안"),
-    "rp_fill": ("Refill from data", "데이터로 채우기"), "rp_ai": ("✨ AI draft", "✨ AI 초안"),
-    "rp_help": ("Each section starts filled from the program data. Edit the text freely (Markdown: '- ' bullets, "
-                "two spaces for sub bullets, | tables |).", "섹션마다 프로그램 데이터로 먼저 채워져요. 자유롭게 고치면 돼요 "
-                "(Markdown: '- ' 글머리표, 두 칸 들여쓰면 하위 항목, | 표 |)."),
-    "rp_download": ("⬇ 한글 file (.hwpx)", "⬇ 한글 파일 받기"),
+    "rp_ai_all": ("Draft every section with AI", "모든 섹션 AI 초안"),
+    "rp_fill": ("Refill from data", "데이터로 채우기"), "rp_ai": ("AI draft", "AI 초안"),
+    "rp_help": ("Each section starts filled from the program data. Edit on the left, see how it reads on the right "
+                "('- ' bullets, two spaces for sub bullets, | tables |).", "섹션마다 프로그램 데이터로 먼저 채워져요. "
+                "왼쪽에서 고치면 오른쪽에 어떻게 보이는지 바로 나와요 ('- ' 글머리표, 두 칸 들여쓰면 하위 항목, | 표 |)."),
+    "rp_download": ("한글 file (.hwpx)", "한글 파일 받기"),
     "rp_hwp_note": ("Opens in 한글 2014 or later. If the client needs .hwp, open it in 한글 and Save As HWP.",
                     "한글 2014 이상에서 열려요. 발주처가 .hwp를 원하면 한글에서 열고 '다른 이름으로 저장'에서 HWP를 고르면 돼요."),
     "rp_preview": ("Page preview (approximate: 한글 draws the □ and - bullets, this preview does not)",
@@ -144,10 +151,11 @@ STR = {
     "conflict": ("{who} changed the same thing at the same moment, so their version was kept there. Please check it.",
                  "{who} 님이 같은 부분을 같은 순간에 고쳐서 그 부분은 그쪽 내용으로 두었어요. 한 번 확인해 주세요."),
     "saved_by": ("Saved {when} · {who}", "저장됨 {when} · {who}"),
+    "saved_at": ("Saved {when}", "저장됨 {when}"),
 }
 
 STATUS = {"todo": ("Planned", "예정"), "doing": ("In progress", "진행 중"), "done": ("Done", "완료"), "hold": ("On hold", "보류")}
-STATUS_COLORS = {"todo": "#cbd2e0", "doing": "#88a1eb", "done": "#7cc49a", "hold": "#f2b38b"}
+STATUS_COLORS = {"todo": "#D5DAE1", "doing": "#2B65D9", "done": "#9FD8B8", "hold": "#F7C77A"}
 OUTCOMES = {"followup": ("Follow-up meeting", "후속 미팅"), "nda": ("NDA", "NDA"), "mou": ("MOU / LOI", "MOU·LOI"),
             "poc": ("PoC", "PoC"), "inv_review": ("Investment review", "투자 검토"),
             "inv_closed": ("Investment closed", "투자 유치"), "contract": ("Contract / sales", "계약·매출"),
@@ -255,7 +263,7 @@ def make_program(name: str, tpl: str, start: date | None, end: date | None, clie
         {"id": new_id("k"), "name": ko and k[1] or k[0], "target": k[2] if k[2] is not None else len(startups or []) or None,
          "unit": ko and k[4] or k[3], "source": k[5], "manual": None} for k in KPIS]
     return {"name": name, "client": client, "template": tpl, "start": start.isoformat(), "end": end.isoformat(),
-            "pm": API["me"]() if API.get("me") else "", "team": "", "budget": "", "summary": "",
+            "pm": who(), "team": "", "budget": "", "summary": "",
             "startups": list(startups or []), "stages": stages, "kpis": kpis, "outcomes": [], "events": [],
             "questions": [{"id": f"q{i + 1}", "section": L2(sec), "text": L2(q)} for i, (sec, q) in enumerate(QUESTIONS)]}
 
@@ -469,10 +477,16 @@ def num(v):
     try:
         if pd.isna(v):
             return None
-        f = float(v)
+        f = float(re.sub(r"[^0-9.\-]", "", v) if isinstance(v, str) else v)
     except (TypeError, ValueError):
         return None
     return int(f) if f == int(f) else f
+
+
+def num_text(v) -> str:
+    """A number shown in a text cell: '' when empty, thousands separated."""
+    n = num(v)
+    return "" if n is None else (f"{n:,}" if isinstance(n, int) else f"{n:,.2f}".rstrip("0").rstrip("."))
 
 
 def flag(v) -> bool:
@@ -903,7 +917,7 @@ def questions_to_doc(g: int):
 def kpi_rows(src_labels: dict):
     def rows_of(data: dict) -> list[dict]:
         return [{"id": k.get("id"), "name": k.get("name"), "target": k.get("target"), "unit": k.get("unit"),
-                 "source": src_labels.get(k.get("source") or "", k.get("source")), "manual": k.get("manual")}
+                 "source": src_labels.get(k.get("source") or "", k.get("source")), "manual": num_text(k.get("manual"))}
                 for k in data.get("kpis") or []]
     return rows_of
 
@@ -921,7 +935,7 @@ def outcome_rows(olab: dict):
     def rows_of(data: dict) -> list[dict]:
         return [{"id": o.get("id"), "date": pdate(o.get("date")), "startup": o.get("startup"),
                  "partner": o.get("partner"), "type": olab.get(o.get("type"), o.get("type")),
-                 "amount": o.get("amount"), "note": o.get("note")} for o in data.get("outcomes") or []]
+                 "amount": num_text(o.get("amount")), "note": o.get("note")} for o in data.get("outcomes") or []]
     return rows_of
 
 
@@ -951,7 +965,9 @@ def page():
     box = st.container()
     for fk in ("flash", "pg_flash"):
         flash = ss().pop(fk, None)
-        if flash:
+        if flash and flash[0] == "success":
+            st.toast(flash[1], icon=":material/check_circle:")
+        elif flash:
             getattr(box, flash[0])(flash[1])
     qp = st.query_params.get("program")
     if qp and ss().get("pg_open") != qp and not ss().get("pg_closed"):
@@ -1019,11 +1035,12 @@ def new_program_form():
 def hub():
     docs = Docs()
     progs = docs.list("program", with_data=True)
-    h1, h2 = st.columns([4, 1.3], vertical_alignment="bottom")
+    h1, h2 = st.columns([4, 1], vertical_alignment="center")
     h1.subheader(T("programs"), anchor=False)
     h1.caption(T("programs_cap"))
-    with h2.popover(T("new_program"), width="stretch"):
-        new_program_form()
+    with h2.container(horizontal=True, horizontal_alignment="right"):
+        with st.popover(T("new_program"), type="primary", icon=":material/add:"):
+            new_program_form()
     if not progs:
         st.info(T("empty_hub"))
         st.button(T("example"), on_click=cb_create, args=(True,))
@@ -1043,11 +1060,13 @@ def hub():
             st.caption(T("nothing_due"))
         for dd, p, s_ in sorted(due, key=lambda x: x[0])[:10]:
             late = dd < today
-            a, b, c = st.columns([1.1, 5, 1.2], vertical_alignment="center")
-            a.markdown(f":{'red' if late else 'orange' if (dd - today).days <= 3 else 'gray'}-badge[{dday(dd)}]")
+            a, b, c = st.columns([0.7, 6, 1], vertical_alignment="center")
+            a.markdown(f":{'red' if late else 'orange' if (dd - today).days <= 3 else 'blue'}-badge[{dday(dd)}]")
             b.markdown(f"**{s_.get('name')}** · {p['data'].get('name')}"
                        + (f" · {s_['owner']}" if s_.get("owner") else ""))
-            c.button(T("open"), key=f"due_{p['id']}_{s_.get('id')}", on_click=cb_open, args=(p["id"],), width="stretch")
+            with c.container(horizontal=True, horizontal_alignment="right"):
+                st.button(T("open"), key=f"due_{p['id']}_{s_.get('id')}", on_click=cb_open, args=(p["id"],),
+                          type="tertiary", icon=":material/arrow_forward:", icon_position="right")
 
     cols = st.columns(3)
     for i, p in enumerate(progs):
@@ -1059,14 +1078,16 @@ def hub():
                                               T("n_startups", n=len(d.get('startups') or []))) if x))
             st.progress(sm["done"] / sm["n"] if sm["n"] else 0.0,
                         text=T("progress", d=sm["done"], n=sm["n"]) if sm["n"] else "")
+            lines = []
             if sm["now"]:
-                st.write(T("stage_now", s=sm["now"]["name"]))
+                lines.append(T("stage_now", s=sm["now"]["name"]))
             if sm["next"]:
-                st.write(T("next_due", s=sm["next"]["name"], d=dday(pdate(sm["next"]["due"]))))
+                lines.append(T("next_due", s=sm["next"]["name"], d=dday(pdate(sm["next"]["due"]))))
             elif sm["n"]:
-                st.write(T("all_done"))
-            st.button(T("open"), key=f"open_{p['id']}", on_click=cb_open, args=(p["id"],), type="primary",
-                      width="stretch")
+                lines.append(T("all_done"))
+            if lines:
+                st.markdown("  \n".join(lines))
+            st.button(T("open"), key=f"open_{p['id']}", on_click=cb_open, args=(p["id"],), width="stretch")
 
 
 # ---------------------------------------------------------------- one program
@@ -1080,11 +1101,12 @@ def program_view(pid: str):
         st.button(T("back"), on_click=cb_close)
         return
     d, g = w.data, w.gen
-    top1, top2 = st.columns([5, 1.4], vertical_alignment="center")
-    top1.button(T("back"), on_click=cb_close)
-    if w.meta.get("updated_by"):
-        top2.caption(T("saved_by", when=time.strftime("%m-%d %H:%M", time.localtime(w.meta.get("updated_at") or time.time())),
-                       who=w.meta.get("updated_by")))
+    top1, top2 = st.columns([5, 1.6], vertical_alignment="center")
+    top1.button(T("back"), on_click=cb_close, type="tertiary")
+    if w.meta.get("updated_at"):
+        when = time.strftime("%m-%d %H:%M", time.localtime(w.meta.get("updated_at") or time.time()))
+        by = w.meta.get("updated_by") if w.meta.get("updated_by") not in (None, "", "someone") else ""
+        top2.caption(T("saved_by", when=when, who=by) if by else T("saved_at", when=when))
     st.markdown(f"## {d.get('name')}")
     sm = stage_summary(d)
     st.caption(" · ".join(x for x in (d.get("client"), f"{docgen.kdate(d.get('start'))} ~ {docgen.kdate(d.get('end'))}",
@@ -1174,7 +1196,7 @@ def tab_stages(d: dict, g: int):
             color=alt.Color("status:N", title=None, legend=alt.Legend(orient="top"),
                             scale=alt.Scale(domain=[L2(v) for v in STATUS.values()], range=list(STATUS_COLORS.values()))),
             tooltip=["stage", "status", "owner", alt.Tooltip("from:T", format="%Y-%m-%d"), alt.Tooltip("to:T", format="%Y-%m-%d")])
-        rule = alt.Chart(pd.DataFrame({"t": [pd.Timestamp(date.today())]})).mark_rule(color="#d92d20", strokeDash=[4, 3]).encode(x="t:T")
+        rule = alt.Chart(pd.DataFrame({"t": [pd.Timestamp(date.today())]})).mark_rule(color="#E5484D", strokeDash=[4, 3]).encode(x="t:T")
         st.altair_chart((bars + rule).properties(height=max(160, 30 * len(tl) + 30)), width="stretch")
     else:
         st.caption(T("no_dates"))
@@ -1232,23 +1254,25 @@ def tab_intake(pid: str, d: dict, g: int):
     if not srows:
         st.info(T("ik_none"))
         return
-    with st.popover(T("ik_questions")):
-        st.caption(T("ik_q_help"))
-        table_box("pg_w", st, "questions", lambda data: data.get("questions") or [], ["id", "section", "text"],
-                  questions_to_doc(g), num_rows="dynamic", hide_index=True, width="stretch",
-                  column_config={"id": None, "section": st.column_config.TextColumn(T("q_section"), width="small"),
-                                 "text": st.column_config.TextColumn(T("q_text"), width="large")})
     intakes = intake_map(pid)
     done = sum(1 for s_ in srows if intakes.get(s_["key"], {}).get("status") == "done")
-    st.progress(done / len(srows), text=T("ik_progress", d=done, n=len(srows)))
     names = [s_["name"] for s_ in srows]
     pk, mem = f"ik_pick_{pid}", ss().setdefault("ik_pick_mem", {})
     drop_if_invalid(pk, lambda v: v in names)
-    pick = st.selectbox(T("ik_pick"), names, index=names.index(mem[pid]) if mem.get(pid) in names else 0, key=pk,
-                        format_func=lambda n: ("✅ " if intakes.get(norm(n), {}).get("status") == "done" else "⏳ ") + n)
+    top1, top2, top3 = st.columns([1.3, 2, 0.9], vertical_alignment="bottom")
+    pick = top1.selectbox(T("ik_pick"), names, index=names.index(mem[pid]) if mem.get(pid) in names else 0, key=pk,
+                          format_func=lambda n: f"{n}  ·  {T('ik_done')}" if intakes.get(norm(n), {}).get("status") == "done" else n)
+    top2.progress(done / len(srows), text=T("ik_progress", d=done, n=len(srows)))
+    with top3.container(horizontal=True, horizontal_alignment="right"):
+        with st.popover(T("ik_questions"), icon=":material/edit_note:"):
+            st.caption(T("ik_q_help"))
+            table_box("pg_w", st, "questions", lambda data: data.get("questions") or [], ["id", "section", "text"],
+                      questions_to_doc(g), num_rows="dynamic", hide_index=True, width="stretch",
+                      column_config={"id": None, "section": st.column_config.TextColumn(T("q_section"), width="small"),
+                                     "text": st.column_config.TextColumn(T("q_text"), width="large")})
     mem[pid] = pick
     srow = next(s_ for s_ in srows if s_["name"] == pick)
-    default = {"startup": pick, "date": date.today().isoformat(), "interviewer": API["me"]() if API.get("me") else "",
+    default = {"startup": pick, "date": date.today().isoformat(), "interviewer": who(),
                "attendees": "", "status": "todo", "answers": {q["id"]: "" for q in d.get("questions") or []},
                "notes": "", "summary": "", "suggest": {}}
     w = wc("ik_w", "intake", f"{pid}:{pick}", pid, default)
@@ -1270,9 +1294,10 @@ def tab_intake(pid: str, d: dict, g: int):
         text_box("ik_w", st, q["text"], q["id"], area=True, height=80)
     text_box("ik_w", st, T("ik_notes"), "notes", area=True, height=80)
 
-    c1, c2, c3 = st.columns([1.2, 1.2, 1.2])
+    bar = st.container(horizontal=True, vertical_alignment="center")
+    c1 = c2 = c3 = bar
     if ai.available():
-        if c1.button(T("ik_ai"), key=f"ik_{rg}_ai", type="primary"):
+        if c1.button(T("ik_ai"), key=f"ik_{rg}_ai", type="primary", icon=":material/auto_awesome:"):
             qa = [(q.get("section", ""), q["text"], (r.get("answers") or {}).get(q["id"], "")) for q in d.get("questions") or []]
             profile = {k_: srow.get(k_) for k_ in ("name", "kr", "tags", "stage", "one_liner")}
             try:
@@ -1287,12 +1312,12 @@ def tab_intake(pid: str, d: dict, g: int):
         c1.caption(T("ik_ai_off"))
     md_one = docgen.intake_markdown(srow, r, d.get("questions") or [], lang())
     c2.download_button(T("ik_doc"), deferred_hwpx(md_one), fname(f"Intake_{pick}"), key=f"ik_{rg}_dl",
-                       mime=HWPX_MIME, width="stretch", on_click="ignore")
+                       mime=HWPX_MIME, icon=":material/download:", on_click="ignore")
     allr = intake_map(pid)
     md_all = f"# {docgen.esc(d.get('name'))} Intake Interview\n\n" + "\n".join(
         docgen.intake_markdown(s_, allr.get(s_["key"], {}), d.get("questions") or [], lang(), heading=2) for s_ in srows)
     c3.download_button(T("ik_doc_all"), deferred_hwpx(md_all), fname(f"Intake_{d.get('name')}"), key=f"ik_{rg}_all",
-                       mime=HWPX_MIME, width="stretch", on_click="ignore")
+                       mime=HWPX_MIME, icon=":material/download:", on_click="ignore")
 
     if r.get("summary"):
         st.markdown(f"**{T('ik_summary')}**")
@@ -1335,33 +1360,35 @@ def tab_kpi(pid: str, d: dict, g: int):
     match = matching_for(d)
     intakes = intake_map(pid)
     st.markdown(f"**{T('m_title')}**")
-    m1, m2, m3, m4, m5 = st.columns(5)
-    by = match["by"]
-    m1.metric(T("m_total"), match["total"])
-    m2.metric(T("m_done"), by.get("Done", 0))
-    m3.metric(T("m_noshow"), by.get("No-Show", 0))
-    m4.metric(T("m_up"), by.get("Scheduled", 0) + by.get("Ongoing", 0))
-    m5.metric(T("m_partners"), len(match["partners"]))
-    if not match["events"]:
+    if match["events"]:
+        by = match["by"]
+        with st.container(horizontal=True):
+            st.metric(T("m_total"), match["total"], border=True)
+            st.metric(T("m_done"), by.get("Done", 0), border=True)
+            st.metric(T("m_noshow"), by.get("No-Show", 0), border=True)
+            st.metric(T("m_up"), by.get("Scheduled", 0) + by.get("Ongoing", 0), border=True)
+            st.metric(T("m_partners"), len(match["partners"]), border=True)
+    else:
         st.caption(T("no_events") if not (API.get("event_choices") and API["event_choices"]()) else T("events_help"))
 
     st.markdown(f"**{T('kpi_title')}**")
-    st.caption(T("kpi_help"))
-    src_labels = {k: L2(v) for k, v in SOURCES.items()}
-    inv = {v: k for k, v in src_labels.items()}
-    table_box("pg_w", st, "kpis", kpi_rows(src_labels), ["id", "name", "target", "unit", "source", "manual"],
-              kpis_to_doc(g, inv), num_rows="dynamic", hide_index=True, width="stretch",
-              column_config={"id": None, "name": st.column_config.TextColumn(T("k_name"), width="medium"),
-                             "target": st.column_config.NumberColumn(T("k_target")),
-                             "unit": st.column_config.TextColumn(T("k_unit"), width="small"),
-                             "source": st.column_config.SelectboxColumn(T("k_source"), options=list(src_labels.values()), width="medium"),
-                             "manual": st.column_config.NumberColumn(T("k_manual"))})
     vals = kpi_values(d, match, intakes)
     if vals:
         st.dataframe(pd.DataFrame([{T("k_name"): v["name"], T("k_target"): v["target_s"], T("k_actual"): v["actual_s"],
                                     T("k_rate"): min(1.0, v["rate"]) if v["rate"] is not None else None} for v in vals]),
                      hide_index=True, width="stretch",
                      column_config={T("k_rate"): st.column_config.ProgressColumn(T("k_rate"), min_value=0.0, max_value=1.0, format="percent")})
+    src_labels = {k: L2(v) for k, v in SOURCES.items()}
+    inv = {v: k for k, v in src_labels.items()}
+    with st.expander(T("kpi_edit"), icon=":material/tune:", expanded=not vals):
+        st.caption(T("kpi_help"))
+        table_box("pg_w", st, "kpis", kpi_rows(src_labels), ["id", "name", "target", "unit", "source", "manual"],
+                  kpis_to_doc(g, inv), num_rows="dynamic", hide_index=True, width="stretch",
+                  column_config={"id": None, "name": st.column_config.TextColumn(T("k_name"), width="medium"),
+                                 "target": st.column_config.NumberColumn(T("k_target")),
+                                 "unit": st.column_config.TextColumn(T("k_unit"), width="small"),
+                                 "source": st.column_config.SelectboxColumn(T("k_source"), options=list(src_labels.values()), width="medium"),
+                                 "manual": st.column_config.TextColumn(T("k_manual"))})
 
     st.markdown(f"**{T('out_title')}**")
     st.caption(T("out_help"))
@@ -1373,7 +1400,7 @@ def tab_kpi(pid: str, d: dict, g: int):
                              "startup": st.column_config.SelectboxColumn(T("o_startup"), options=d.get("startups") or []),
                              "partner": st.column_config.TextColumn(T("o_partner")),
                              "type": st.column_config.SelectboxColumn(T("o_type"), options=list(olab.values())),
-                             "amount": st.column_config.NumberColumn(T("o_amount")),
+                             "amount": st.column_config.TextColumn(T("o_amount")),
                              "note": st.column_config.TextColumn(T("o_note"), width="large")})
 
 
@@ -1522,14 +1549,14 @@ def tab_report(pid: str, d: dict, g: int):
         return ai.draft_section(kinds[kind], name, docgen.AI_HINTS[k][0 if lang() == "ko" else 1], ai_data(k, c),
                                 r["sections"].get(k, ""), lang())
 
-    b1, b2, _ = st.columns([1.4, 1.4, 2])
-    if b1.button(T("rp_fill_all"), key=f"rp_{rg}_fillall"):
+    bar = st.container(horizontal=True, vertical_alignment="center")
+    if bar.button(T("rp_fill_all"), key=f"rp_{rg}_fillall", icon=":material/refresh:"):
         r["sections"] = {k: docgen.build_section(k, c) for k, _ in titles}
         r["auto"] = dict(r["sections"])
         w.rebase()
         st.rerun()
     if ai.available():
-        if b2.button(T("rp_ai_all"), key=f"rp_{rg}_aiall", type="primary"):
+        if bar.button(T("rp_ai_all"), key=f"rp_{rg}_aiall", type="primary", icon=":material/auto_awesome:"):
             try:
                 with st.spinner(T("rp_ai_wait")):
                     for k, name in titles:
@@ -1541,17 +1568,18 @@ def tab_report(pid: str, d: dict, g: int):
             except Exception as e:  # noqa: BLE001
                 st.error(T("ai_fail", e=e))
     else:
-        b2.caption(T("ik_ai_off"))
+        bar.caption(T("ik_ai_off"))
     st.caption(T("rp_help"))
     for k, name in titles:
         with st.expander(name, expanded=False):
-            x1, x2, _ = st.columns([1, 1, 3])
-            if x1.button(T("rp_fill"), key=f"rp_{rg}_fill_{k}"):
+            row = st.container(horizontal=True)
+            if row.button(T("rp_fill"), key=f"rp_{rg}_fill_{k}", type="tertiary", icon=":material/refresh:"):
                 r["sections"][k] = docgen.build_section(k, c)
                 r.setdefault("auto", {})[k] = r["sections"][k]
                 w.rebase()
                 st.rerun()
-            if ai.available() and x2.button(T("rp_ai"), key=f"rp_{rg}_ai_{k}"):
+            if ai.available() and row.button(T("rp_ai"), key=f"rp_{rg}_ai_{k}", type="tertiary",
+                                             icon=":material/auto_awesome:"):
                 try:
                     with st.spinner(T("rp_ai_wait")):
                         r["sections"][k] = draft(k, name)
@@ -1560,18 +1588,21 @@ def tab_report(pid: str, d: dict, g: int):
                     st.rerun()
                 except Exception as e:  # noqa: BLE001
                     st.error(T("ai_fail", e=e))
-            text_box("rp_w", st, name, k, area=True, height=220, label_visibility="collapsed")
+            e1, e2 = st.columns(2, gap="medium")
+            text_box("rp_w", e1, name, k, area=True, height=340, label_visibility="collapsed")
+            with e2.container(border=True, height=340):   # how it reads, next to the text being edited
+                st.markdown(r["sections"].get(k) or "")
     md = docgen.report_markdown(r.get("title") or "", kind, r["sections"], lang())
-    m1, m2, m3 = st.columns([1.2, 1.2, 2.4], vertical_alignment="center")
-    m1.download_button(T("rp_download"), deferred_hwpx(md, r.get("byline")), fname(r.get("title") or kinds[kind]),
-                       mime=HWPX_MIME, key=f"rp_{rg}_dl", type="primary", width="stretch", on_click="ignore")
-    if m2.button(T("rp_preview_btn"), key=f"rp_{rg}_pv", width="stretch"):
+    foot = st.container(horizontal=True, vertical_alignment="center")
+    foot.download_button(T("rp_download"), deferred_hwpx(md, r.get("byline")), fname(r.get("title") or kinds[kind]),
+                         mime=HWPX_MIME, key=f"rp_{rg}_dl", type="primary", icon=":material/download:", on_click="ignore")
+    if foot.button(T("rp_preview_btn"), key=f"rp_{rg}_pv", icon=":material/visibility:"):
         try:
             data, issues = docgen.to_hwpx(md, r.get("byline"))
             ss()["rp_pv"] = (w.id, h(r), docgen.preview_html(data), issues)
         except Exception as e:  # noqa: BLE001
             st.error(T("rp_issues", e=e))
-    m3.caption(T("rp_hwp_note"))
+    foot.caption(T("rp_hwp_note"))
     pv = ss().get("rp_pv")
     if pv and pv[0] == w.id:
         if pv[3]:

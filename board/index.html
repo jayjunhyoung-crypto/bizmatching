@@ -4,8 +4,12 @@
 <meta charset="utf-8">
 <title>BizMatch board</title>
 <style>
-:root{--ink:#111827;--mut:#6b7280;--line:#e3e6ee;--bg:#ffffff;--zone:#f4f6fa;--head:#eef1f6;--headink:#334155;--cob:#1240e0;
- --red:#d92d20;--amber:#e08a00;--green:#14a44d;--panel:#ffffff;font-family:"Source Sans Pro","Source Sans 3",Inter,system-ui,sans-serif}
+@font-face{font-family:Pretendard;font-weight:400;font-display:swap;src:url("../../app/static/fonts/Pretendard-Regular.subset.woff2") format("woff2")}
+@font-face{font-family:Pretendard;font-weight:500;font-display:swap;src:url("../../app/static/fonts/Pretendard-Medium.subset.woff2") format("woff2")}
+@font-face{font-family:Pretendard;font-weight:600;font-display:swap;src:url("../../app/static/fonts/Pretendard-SemiBold.subset.woff2") format("woff2")}
+@font-face{font-family:Pretendard;font-weight:700;font-display:swap;src:url("../../app/static/fonts/Pretendard-Bold.subset.woff2") format("woff2")}
+:root{--ink:#191F28;--mut:#6B7684;--line:#E5E8EB;--bg:#ffffff;--zone:#F3F5F8;--head:#F2F4F6;--headink:#4E5968;--cob:#2B65D9;
+ --red:#D63A40;--amber:#E08A00;--green:#1FAE63;--panel:#ffffff;font-family:Pretendard,-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif}
 body.dark{--ink:#e8ebf3;--mut:#9aa3b8;--line:#2a3350;--bg:#0e1117;--zone:#161b28;--head:#1b2234;--headink:#cbd3e6;--panel:#121725}
 *{box-sizing:border-box}
 html,body{margin:0;background:transparent;color:var(--ink);font-size:13px}
@@ -19,7 +23,7 @@ button{font:inherit;color:inherit}
 .btn.on{background:var(--zone)}
 .pill{display:inline-flex;align-items:center;gap:6px;border-radius:99px;padding:4px 10px;background:var(--zone);font-weight:600;white-space:nowrap}
 .pill i{width:9px;height:9px;border-radius:50%;display:inline-block}
-.pill.bad{background:rgba(217,45,32,.12);color:var(--red);cursor:pointer}
+.pill.bad{background:rgba(229,72,77,.12);color:var(--red);cursor:pointer}
 .spacer{flex:1}
 .clock{font-weight:700;font-variant-numeric:tabular-nums}
 .notes{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:0 0 10px;background:var(--panel);display:grid;gap:4px}
@@ -27,7 +31,7 @@ button{font:inherit;color:inherit}
 .tray{border:1.5px dashed var(--line);border-radius:10px;padding:8px;margin:0 0 10px;display:flex;flex-wrap:wrap;gap:6px;
  align-items:center;min-height:48px;transition:background .12s,border-color .12s}
 .tray .lab{color:var(--mut);font-weight:600;margin-right:4px}
-.tray.hot{border-color:var(--cob);background:rgba(18,64,224,.06)}
+.tray.hot{border-color:var(--cob);background:rgba(43,101,217,.06)}
 .tray .chip{min-width:150px}
 .wrap{overflow:auto;border:1px solid var(--line);border-radius:12px;background:var(--panel);position:relative}
 table.g{border-collapse:separate;border-spacing:0;min-width:100%}
@@ -51,14 +55,14 @@ body.fs{padding:12px 16px}
 .compact .chip b{font-size:12px}
 .compact .chip .h{font-size:10px}
 .g tr.now td.time{color:#fff;background:var(--cob)}
-.g tr.now td{background-color:rgba(18,64,224,.05)}
+.g tr.now td{background-color:rgba(43,101,217,.05)}
 .g tr.brk td{background:var(--zone);color:var(--mut);font-weight:700;text-align:center;height:30px;letter-spacing:.02em}
 .cell{min-width:118px;height:62px;border-radius:9px;transition:background .12s,box-shadow .12s;display:flex;align-items:stretch}
 .cell.pc{min-width:130px;flex-direction:column;gap:3px}
 .cell .dash{flex:1;display:flex;align-items:center;justify-content:center;color:var(--line);font-size:16px}
-.cell.fit{box-shadow:inset 0 0 0 2.5px var(--green);background:rgba(20,164,77,.10)}
+.cell.fit{box-shadow:inset 0 0 0 2.5px var(--green);background:rgba(31,174,99,.10)}
 .cell.push{box-shadow:inset 0 0 0 2.5px var(--amber);background:rgba(224,138,0,.12)}
-.cell.clash{box-shadow:inset 0 0 0 2.5px var(--red);background:rgba(217,45,32,.12)}
+.cell.clash{box-shadow:inset 0 0 0 2.5px var(--red);background:rgba(229,72,77,.12)}
 .cell.self{box-shadow:inset 0 0 0 2px var(--line)}
 td.wait{font-size:11.5px;color:var(--mut);min-width:170px;max-width:320px;text-align:center;line-height:1.3}
 .chip{flex:1;border-radius:9px;box-shadow:inset 0 0 0 1px rgba(17,24,39,.06);padding:6px 8px;text-align:center;cursor:grab;line-height:1.22;position:relative;
@@ -69,8 +73,8 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:170px;max-width:320px;text-a
 .chip .h{font-size:11px;opacity:.85}
 .chip .st{margin-top:3px;font-size:10px;font-weight:700;border-radius:99px;padding:1px 7px;background:rgba(255,255,255,.78);color:#1f2430}
 .chip .st.Ongoing{background:var(--cob);color:#fff}
-.chip .st.Done{background:#ddf2e3;color:#1e7b34}
-.chip .st.No-Show{background:#fde2e6;color:#b4132d}
+.chip .st.Done{background:#E6F6EE;color:#0E7C45}
+.chip .st.No-Show{background:#FDECEC;color:#C9343A}
 .chip.ns{filter:grayscale(1);opacity:.55}
 .chip.ns b{text-decoration:line-through}
 .chip.done{opacity:.72}
@@ -93,9 +97,9 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:170px;max-width:320px;text-a
 .ghost[data-kind=push]{box-shadow:0 0 0 3px var(--amber),0 14px 32px rgba(0,0,0,.28)}
 .ghost[data-kind=clash]{box-shadow:0 0 0 3px var(--red),0 14px 32px rgba(0,0,0,.28)}
 .ghost.snapped{transition:left .11s ease-out,top .11s ease-out;transform:rotate(0) scale(1)}
-.hint{position:fixed;z-index:61;pointer-events:none;background:#111827;color:#fff;border-radius:8px;padding:6px 9px;font-size:12px;
+.hint{position:fixed;z-index:61;pointer-events:none;background:#191F28;color:#fff;border-radius:8px;padding:6px 9px;font-size:12px;
  max-width:300px;line-height:1.35;box-shadow:0 6px 18px rgba(0,0,0,.25)}
-.hint.fit{background:#0f7a3a}.hint.push{background:#9a5b00}.hint.clash{background:#b42318}
+.hint.fit{background:#0E7C45}.hint.push{background:#A35200}.hint.clash{background:#C9343A}
 .menu{position:absolute;z-index:70;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:6px;
  box-shadow:0 10px 28px rgba(0,0,0,.2);display:grid;min-width:190px}
 .menu .t{font-weight:700;padding:4px 8px 6px;border-bottom:1px solid var(--line);margin-bottom:4px}
@@ -104,10 +108,10 @@ td.wait{font-size:11.5px;color:var(--mut);min-width:170px;max-width:320px;text-a
 .menu button:hover,.menu button.cur{background:var(--zone)}
 .menu .why{color:var(--red);padding:4px 8px;font-size:12px;max-width:260px}
 .dot{width:9px;height:9px;border-radius:50%;display:inline-block;flex:none}
-.toast{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);background:#111827;color:#fff;border-radius:10px;padding:9px 14px;
+.toast{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);background:#191F28;color:#fff;border-radius:10px;padding:9px 14px;
  font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:80;max-width:92vw}
 .toast.on{opacity:1}
-.toast.bad{background:#b42318}
+.toast.bad{background:#C9343A}
 .legend{display:flex;gap:12px;flex-wrap:wrap;color:var(--mut);font-size:12px}
 .legend span{display:inline-flex;gap:5px;align-items:center}
 .legend i{width:14px;height:10px;border-radius:3px;display:inline-block}
@@ -154,8 +158,8 @@ details.fold>summary:hover .sec{color:var(--ink)}
 .rcard .tabs button{border:1px solid var(--line);background:var(--panel);border-radius:99px;padding:4px 11px;cursor:pointer;font-weight:700;font-size:12px}
 .rcard .tabs button.on{background:var(--cob);border-color:var(--cob);color:#fff}
 .rcard .lead{padding:8px 14px 2px;color:var(--mut);font-size:12px}
-.stag.fit{background:rgba(20,164,77,.18);color:var(--ink);box-shadow:0 0 0 2px var(--green)}
-.stag.clash{background:rgba(217,45,32,.14);color:var(--ink);box-shadow:0 0 0 2px var(--red)}
+.stag.fit{background:rgba(31,174,99,.18);color:var(--ink);box-shadow:0 0 0 2px var(--green)}
+.stag.clash{background:rgba(229,72,77,.14);color:var(--ink);box-shadow:0 0 0 2px var(--red)}
 .menu .pick{max-height:300px;overflow:auto;display:grid}
 .pcard{width:430px;max-width:calc(100vw - 16px);padding:0;max-height:min(84vh,680px);overflow:auto}
 .pcard .ph{display:flex;gap:10px;align-items:flex-start;padding:12px 14px 10px;border-bottom:1px solid var(--line)}
@@ -164,7 +168,7 @@ details.fold>summary:hover .sec{color:var(--ink)}
 .pcard .ph small{color:var(--mut);display:block;margin-top:1px}
 .pcard .ph .x{margin-left:auto;border:0;background:none;font-size:18px;cursor:pointer;color:var(--mut);padding:0 4px}
 .pcard .want{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
-.pcard .want span{background:rgba(18,64,224,.09);color:var(--cob);border-radius:5px;padding:1px 6px;font-size:11px;font-weight:700}
+.pcard .want span{background:rgba(43,101,217,.09);color:var(--cob);border-radius:5px;padding:1px 6px;font-size:11px;font-weight:700}
 .pcard .stats{display:flex;gap:14px;padding:8px 14px;color:var(--mut);font-size:12px;border-bottom:1px solid var(--line)}
 .pcard .stats b{color:var(--ink);font-size:14px}
 .pcard .sec{padding:8px 14px 4px;font-weight:700;font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.03em;display:flex;justify-content:space-between}
@@ -174,9 +178,9 @@ details.fold>summary:hover .sec{color:var(--ink)}
 .pcard .row .nm{font-weight:700;white-space:nowrap}
 .pcard .row .why{display:flex;flex-wrap:wrap;gap:3px;margin-top:2px;padding:0;max-width:none;color:inherit;font-size:inherit}
 .pcard .row .why span{font-size:10.5px;border-radius:4px;padding:0 5px;background:var(--zone);color:var(--mut);font-weight:600}
-.pcard .row .why span.g{background:rgba(20,164,77,.13);color:#0f7a3a}
+.pcard .row .why span.g{background:rgba(31,174,99,.13);color:#0E7C45}
 .pcard .row .why span.a{background:rgba(224,160,0,.16);color:#8a5a00}
-.pcard .row .why span.r{background:rgba(217,45,32,.1);color:var(--red)}
+.pcard .row .why span.r{background:rgba(229,72,77,.1);color:var(--red)}
 .pcard .row .go{margin-left:auto;flex:none;border:1px solid var(--line);background:var(--panel);border-radius:7px;padding:4px 10px;cursor:pointer;font-weight:700;font-size:12px;white-space:nowrap}
 .pcard .row .go:hover{border-color:var(--cob);color:var(--cob)}
 .pcard .row .go:disabled{opacity:.4;cursor:default}
@@ -622,11 +626,11 @@ details.fold>summary:hover .sec{color:var(--ink)}
     document.getElementById("app").innerHTML =
       '<div class="bar"><button class="btn" data-act="undo"' + (hist.length ? "" : " disabled") + ">↶ " + tr("Undo") + "</button>"
       + (clashes.length ? '<span class="pill bad" data-act="clashes" title="' + esc(clashes.map((c) => c.text).join("\n")) + '">' + tr(clashes.length > 1 ? "{0} clashes" : "{0} clash", clashes.length) + "</span>" : '<span class="pill"><i style="background:var(--green)"></i>' + tr("No clashes") + "</span>")
-      + STATUSES.map((s) => '<span class="pill"><i style="background:' + { Scheduled: "#9ca3af", Ongoing: "#1240e0", Done: "#16a34a", "No-Show": "#d92d20" }[s] + '"></i>' + counts[s] + " " + stName(s) + "</span>").join("")
+      + STATUSES.map((s) => '<span class="pill"><i style="background:' + { Scheduled: "#8B95A1", Ongoing: "#2B65D9", Done: "#1FAE63", "No-Show": "#E5484D" }[s] + '"></i>' + counts[s] + " " + stName(s) + "</span>").join("")
       + notes + '<button class="btn fsb" data-act="full">' + (full ? "✕ " + tr("Exit full screen") : "⤢ " + tr("Full screen")) + "</button>"
       + '<span class="spacer"></span>' + (n.cmp === 0 ? '<span class="clock">' + tr("Now {0}", n.hm) + "</span>" : "")
       + '<span class="legend"><span>★ ' + tr("priority startup") + '</span><span style="gap:3px">' + PIN.replace('class="pin"', 'width="11" height="11"') + tr("pinned") + "</span>"
-      + '<span><i style="background:rgba(20,164,77,.35)"></i>' + tr("fits") + '</span><span><i style="background:rgba(224,138,0,.4)"></i>' + tr("pushes others") + '</span><span><i style="background:rgba(217,45,32,.4)"></i>' + tr("clash") + "</span></span></div>"
+      + '<span><i style="background:rgba(31,174,99,.35)"></i>' + tr("fits") + '</span><span><i style="background:rgba(224,138,0,.4)"></i>' + tr("pushes others") + '</span><span><i style="background:rgba(229,72,77,.4)"></i>' + tr("clash") + "</span></span></div>"
       + (showNotes ? '<div class="notes">' + D.notes.map((x) => "<div><b>" + esc(x[0]) + ":</b> " + esc(x[1]) + "</div>").join("") + "</div>" : "")
       + '<div class="tray" data-tray="1"><span class="lab">' + tr("Unplaced") + "</span>" + (parked || '<span style="color:var(--mut)">' + tr("Drag a meeting here to unschedule it") + "</span>") + "</div>"
       + '<div class="wrap' + (F ? " focusing" : "") + (D.tables > 10 ? " compact" : "") + '" id="wrap"><table class="g"><thead>' + head + "</thead><tbody>" + body + "</tbody></table></div>";
@@ -822,7 +826,7 @@ details.fold>summary:hover .sec{color:var(--ink)}
       why.forEach((w) => (h += '<div class="why">' + esc(w) + "</div>"));
       if (item.k != null) {
         h += '<button data-mact="subs" style="font-weight:700;color:var(--cob)">↺ ' + tr("Cancelled? Find who steps in") + "</button>";
-        [["Auto", "#cbd2e0"], ["Scheduled", "#9ca3af"], ["Ongoing", "#1240e0"], ["Done", "#16a34a"], ["No-Show", "#d92d20"]].forEach((x) => {
+        [["Auto", "#D1D6DB"], ["Scheduled", "#8B95A1"], ["Ongoing", "#2B65D9"], ["Done", "#1FAE63"], ["No-Show", "#E5484D"]].forEach((x) => {
           h += '<button data-st="' + x[0] + '"' + (cur === x[0] ? ' class="cur"' : "") + '><span class="dot" style="background:' + x[1] + '"></span>' + (x[0] === "Auto" ? tr("Auto (follows the clock)") : stName(x[0])) + "</button>";
         });
         h += '<button data-mact="focus">' + tr("Highlight {0}", esc(item.startup)) + "</button>";
@@ -836,7 +840,7 @@ details.fold>summary:hover .sec{color:var(--ink)}
       h += '<div class="t">' + esc(item.startup) + "<small>" + tr("pitch polishing") + " · " + fmt(slotOf(item.k).start) + (who ? " · " + esc(who) : "") + "</small></div>";
       if (item.note) h += '<div class="why" style="color:var(--mut)">' + esc(tr("Focus: {0}", item.note)) + "</div>";
       polishClash(S, item).forEach((w) => (h += '<div class="why">' + esc(w) + "</div>"));
-      [["Auto", "#cbd2e0"], ["Scheduled", "#9ca3af"], ["Ongoing", "#1240e0"], ["Done", "#16a34a"], ["No-Show", "#d92d20"]].forEach((x) => {
+      [["Auto", "#D1D6DB"], ["Scheduled", "#8B95A1"], ["Ongoing", "#2B65D9"], ["Done", "#1FAE63"], ["No-Show", "#E5484D"]].forEach((x) => {
         h += '<button data-st="' + x[0] + '"' + (cur === x[0] ? ' class="cur"' : "") + '><span class="dot" style="background:' + x[1] + '"></span>' + (x[0] === "Auto" ? tr("Auto (follows the clock)") : stName(x[0])) + "</button>";
       });
       h += '<button data-mact="delpol">' + tr("Remove this polishing slot") + "</button>";

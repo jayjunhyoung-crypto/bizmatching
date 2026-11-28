@@ -1,5 +1,73 @@
+# One calm trust blue for actions, white space, a grey scale for text, colour only where it carries meaning.
 [theme]
-primaryColor = "#1240e0"
+base = "light"
+primaryColor = "#2B65D9"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F3F5F8"
+textColor = "#191F28"
+linkColor = "#2B65D9"
+linkUnderline = false
+borderColor = "#E5E8EB"
+showWidgetBorder = true
+dataframeBorderColor = "#E8EBF0"
+dataframeHeaderBackgroundColor = "#F7F8FA"
+dataframeHeaderTextColor = "#4E5968"
+baseRadius = "0.625rem"
+buttonRadius = "0.625rem"
+font = "Pretendard, sans-serif"
+headingFont = "Pretendard, sans-serif"
+headingFontWeights = [700, 700, 600, 600, 600, 600]
+headingFontSizes = ["2.25rem", "1.75rem", "1.375rem", "1.125rem", "1rem", "0.875rem"]
+metricValueFontSize = "1.75rem"
+metricValueFontWeight = 700
+blueColor = "#2B65D9"
+blueTextColor = "#2B65D9"
+blueBackgroundColor = "#EBF1FD"
+greenColor = "#1FAE63"
+greenTextColor = "#0E7C45"
+greenBackgroundColor = "#E6F6EE"
+redColor = "#E5484D"
+redTextColor = "#C9343A"
+redBackgroundColor = "#FDECEC"
+orangeColor = "#F59E0B"
+orangeTextColor = "#A35200"
+orangeBackgroundColor = "#FFF3E0"
+yellowColor = "#F5B800"
+yellowTextColor = "#8A6100"
+yellowBackgroundColor = "#FFF8DB"
+violetColor = "#7C5CFA"
+violetTextColor = "#5B3FD6"
+violetBackgroundColor = "#F1EDFF"
+grayColor = "#8B95A1"
+grayTextColor = "#4E5968"
+grayBackgroundColor = "#F2F4F6"
+chartCategoricalColors = ["#2B65D9", "#1FAE63", "#F59E0B", "#7C5CFA", "#E5484D", "#14A3B8", "#8B95A1", "#F5B800"]
+
+# Pretendard (SIL Open Font License, see static/fonts/Pretendard-LICENSE.txt), served with the app so Korean text
+# looks the same on every computer.
+[[theme.fontFaces]]
+family = "Pretendard"
+url = "app/static/fonts/Pretendard-Regular.subset.woff2"
+weight = 400
+
+[[theme.fontFaces]]
+family = "Pretendard"
+url = "app/static/fonts/Pretendard-Medium.subset.woff2"
+weight = 500
+
+[[theme.fontFaces]]
+family = "Pretendard"
+url = "app/static/fonts/Pretendard-SemiBold.subset.woff2"
+weight = 600
+
+[[theme.fontFaces]]
+family = "Pretendard"
+url = "app/static/fonts/Pretendard-Bold.subset.woff2"
+weight = 700
+
+[client]
+toolbarMode = "viewer"
 
 [server]
 maxUploadSize = 20
+enableStaticServing = true

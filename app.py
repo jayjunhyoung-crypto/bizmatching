@@ -44,6 +44,7 @@ from ortools.sat.python import cp_model
 # Constants
 # --------------------------------------------------------------------------------------
 APP_TITLE = "BizMatch"
+BRAND = Path(__file__).parent / "static" / "brand"
 LOCAL = components.declare_component("bizmatch_local", path=str(Path(__file__).parent / "local"))
 SUMMARY = components.declare_component("bizmatch_summary", path=str(Path(__file__).parent / "summary"))
 BOARD = components.declare_component("bizmatch_board", path=str(Path(__file__).parent / "board"))
@@ -1039,12 +1040,12 @@ def meetings_table(cfg, meetings, statuses, now, hosts=()) -> pd.DataFrame:
 # Excel export
 # --------------------------------------------------------------------------------------
 XF = "Arial"
-C_NAVY, C_COB, C_INK, C_MUT = "18255C", "1240E0", "111827", "5A6276"
+C_NAVY, C_COB, C_INK, C_MUT = "152C5B", "2B65D9", "191F28", "4E5968"
 C_LINE, C_ZONE, C_FAINT, C_BAND = "E1E6EF", "EEF2FF", "B8C0CF", "F7F9FC"
-ST_STYLE = {"Scheduled": ("EEF0F4", "4A5168"), "Ongoing": ("1240E0", "FFFFFF"),
+ST_STYLE = {"Scheduled": ("EEF0F4", "4A5168"), "Ongoing": ("2B65D9", "FFFFFF"),
             "Done": ("DDF2E3", "1E7B34"), "No-Show": ("FDE2E6", "B4132D")}
 CELL_TINT = {"Ongoing": "EAF0FF", "Done": "F4F5F7", "No-Show": "FFF0F2"}
-NAME_COLORS = ["1240E0", "C2255C", "0B7A75", "B45309", "6D28D9", "0E7490", "A21CAF",
+NAME_COLORS = ["2B65D9", "C2255C", "0B7A75", "B45309", "6D28D9", "0E7490", "A21CAF",
                "3F6212", "9A3412", "1D4ED8", "BE123C", "047857", "7C3AED", "155E75"]
 
 
@@ -1256,7 +1257,7 @@ def build_practice_sheet(wb, cfg, slots, startups, polish, statuses, now, notes,
         dv.add(coord)
     ws.add_data_validation(dv)
     rng = f"E4:E{r}"
-    for s_, (bg, fg) in {**ST_STYLE, "Scheduled": ("E3EAFB", "1240E0")}.items():
+    for s_, (bg, fg) in {**ST_STYLE, "Scheduled": ("EBF1FD", "2B65D9")}.items():
         ws.conditional_formatting.add(rng, CellIsRule(operator="equal", formula=[f'"{s_}"'],
                                                       fill=_fill(bg), font=Font(color=fg, bold=True)))
     ws.freeze_panes = "C1"
@@ -2137,24 +2138,29 @@ def gate() -> bool:
     """Login (Google) or team passcode before the shared workspace opens."""
     if not store():
         return True
+    _, mid, _ = st.columns([1, 1.15, 1])   # a narrow, centred sign-in card
     if auth_on():
         if not getattr(st.user, "is_logged_in", False):
-            st.info(T("login_needed"))
-            st.button(T("login_google"), type="primary", on_click=st.login)
+            with mid.container(border=True):
+                st.markdown(f"#### {T('ws_signin')}")
+                st.caption(T("login_needed"))
+                st.button(T("login_google"), type="primary", on_click=st.login, width="stretch")
             return False
         email = _user_field("email").lower()
         if not email_allowed(email):
-            st.error(T("not_allowed", email=email))
-            st.button(T("logout"), on_click=st.logout)
+            with mid.container(border=True):
+                st.error(T("not_allowed", email=email))
+                st.button(T("logout"), on_click=st.logout)
             return False
         ss().user_name = _user_field("name") or email
         return True
     pc = _secret("access", "passcode")
     if (pc and not ss().get("pass_ok")) or not ss().get("user_name"):
-        with st.form("enter_ws"):
+        with mid.form("enter_ws"):
+            st.markdown(f"#### {T('ws_signin')}")
             v = st.text_input(T("passcode"), type="password") if pc and not ss().get("pass_ok") else None
             n = st.text_input(T("your_name"), value=ss().get("user_name", ""))
-            if st.form_submit_button(T("enter"), type="primary"):
+            if st.form_submit_button(T("enter"), type="primary", width="stretch"):
                 if (v is None or v == str(pc)) and n.strip():
                     ss().pass_ok, ss().user_name = True, n.strip()
                     st.rerun()
@@ -3362,10 +3368,8 @@ def companies_page():
     init_dir()
     dir_pull()
     box = st.container()
-    flash = s.pop("flash", None)
-    if flash:
-        getattr(box, flash[0])(flash[1])
-    st.subheader(T("dir_title"))
+    show_flash(box, s.pop("flash", None))
+    st.subheader(T("dir_title"), anchor=False)
     st.caption(T("dir_cap"))
     counts = {k: len(s.dir_df[k]) for k in DIR_FIELDS}
     s.setdefault("dir_kind", "startup")
@@ -3415,7 +3419,7 @@ def companies_page():
 
 KEEP_KEYS = {"tz", "tl", "tables", "t_start", "t_end", "t_pol_s", "t_pol_e", "t_lunch_s", "t_lunch_e", "sessions_txt",
              "pw", "pol_on", "pol_days", "pol_cap", "pe", "packing_mode", "lunch_on", "keep_live", "interval", "hf",
-             "ev_name", "dir_kind", "day_sel", "buffer_s", "buffer_m"}
+             "ev_name", "dir_kind", "day_sel", "buffer_s", "buffer_m", "lang"}
 KEEP_PREFIXES = ("lbl_", "nm_", "dir_q_", "pmode_", "dir_mode_", "paste_", "dir_paste_", "map_", "dmap_", "dir_pick_")
 
 
@@ -3463,7 +3467,7 @@ def local_backup_restore() -> None:
                 dir_load_doc(k, doc)
         if data.get("program_docs"):
             ss().local_docs = data["program_docs"]
-        ss().flash = ("info", T("restored_local"))
+        ss().flash = ("success", T("restored_local"))
     except Exception:  # noqa: BLE001
         pass
 
@@ -3486,27 +3490,29 @@ def local_backup_save() -> None:
 
 def main():
     programs.begin_run()   # first, before anything is drawn: keeps what was typed right before a click that leaves the page
-    st.set_page_config(page_title=APP_TITLE, page_icon="🗓️", layout="wide")
+    st.set_page_config(page_title=APP_TITLE, page_icon=str(BRAND / "mark.png"), layout="wide")
     keep_widget_state()
-    if "lang" not in ss():
-        q = st.query_params.get("lang", "en")
-        ss().lang = q if q in LANGS else "en"
+    if "lang" not in ss():   # the link's ?lang=, else the browser's language
+        q = st.query_params.get("lang")
+        if q not in LANGS:
+            q = "ko" if str(getattr(st.context, "locale", "") or "").lower().startswith("ko") else "en"
+        ss().lang = q
     init_state()
+    st.logo(str(BRAND / "logo.png"), size="large")
     st.markdown("<style>[data-testid='stMainBlockContainer'],.block-container{max-width:100%;"
-                "padding-left:2rem;padding-right:2rem;padding-top:2.5rem}</style>", unsafe_allow_html=True)
-    h1, h2 = st.columns([5, 1.3], vertical_alignment="bottom")
-    h1.title(APP_TITLE)
-    h2.radio(T("language"), list(LANGS), format_func=LANGS.get, key="lang", horizontal=True, on_change=cb_lang)
-    st.caption(T("app_caption"))
+                "padding-left:2rem;padding-right:2rem;padding-top:4.75rem}</style>", unsafe_allow_html=True)
     ready = gate_ready()
     programs.API.update(store=store, me=me, norm=norm, dir_rows=dir_rows, dir_name=dir_display_name,
                         dir_update=dir_update, matching_stats=matching_stats, event_choices=event_choices, pages=PAGES)
-    PAGES["programs"] = st.Page(programs.page, title=T("nav_programs"), icon="🗂️", url_path="programs", default=True)
-    PAGES["companies"] = st.Page(companies_page, title=T("nav_companies"), icon="📇", url_path="companies")
-    PAGES["matching"] = st.Page(matching_page, title=T("nav_matching"), icon="🤝", url_path="matching")
+    PAGES["programs"] = st.Page(programs.page, title=T("nav_programs"), icon=":material/view_timeline:",
+                                url_path="programs", default=True)
+    PAGES["companies"] = st.Page(companies_page, title=T("nav_companies"), icon=":material/apartment:",
+                                 url_path="companies")
+    PAGES["matching"] = st.Page(matching_page, title=T("nav_matching"), icon=":material/handshake:", url_path="matching")
     nav = st.navigation(list(PAGES.values()), position="top" if ready else "hidden")   # keeps /matching links after login
     if not ready:
         gate()
+        footer()
         return
     init_dir()
     local_backup_restore()
@@ -3515,7 +3521,29 @@ def main():
         page_switched()
     ss()._page = here
     nav.run()
+    footer()
     local_backup_save()
+
+
+def show_flash(box, flash) -> None:
+    """Confirmations slide in as a small toast and leave by themselves; anything to read or act on stays."""
+    if not flash:
+        return
+    kind, msg = flash
+    if kind == "success":
+        st.toast(msg, icon=":material/check_circle:")
+    else:
+        getattr(box, kind)(msg)
+
+
+def footer():
+    """A quiet last line: what the app is, and the language (it starts in the browser's language)."""
+    st.write("")
+    st.divider()
+    c1, c2 = st.columns([6, 1.5], vertical_alignment="center")
+    c1.caption(T("app_caption"))
+    c2.segmented_control(T("language"), list(LANGS), format_func=LANGS.get, key="lang", on_change=cb_lang,
+                         required=True, label_visibility="collapsed", width="stretch")
 
 
 def matching_page():
@@ -3541,9 +3569,7 @@ def matching_page():
                 open_event(eid)
     workspace_bar()
     box = st.container()   # a fixed slot, so a message never moves the tabs (moving them resets the open tab)
-    flash = ss().pop("flash", None)
-    if flash:
-        getattr(box, flash[0])(flash[1])
+    show_flash(box, ss().pop("flash", None))
     t1, t2, t3, t4 = st.tabs([T("tab1"), T("tab2"), T("tab3"), T("tab4")])
     with t1:
         setup_tab()
